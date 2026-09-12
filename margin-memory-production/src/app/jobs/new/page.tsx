@@ -1,0 +1,2 @@
+import { ImportJobForm } from '@/components/import-job-form'
+export default function NewJobPage(){return <div className="page"><div className="page-head"><div><div className="eyebrow">Historical onboarding</div><h1>Import a legacy completed job</h1><p className="subtle">Use this for work that existed before Margin Memory. New estimates should close out through their own lifecycle so warning accuracy is preserved.</p></div></div><ImportJobForm/></div>}

@@ -1,0 +1,8 @@
+import { jobScopeComparison } from '@/lib/domain/scope'
+import Link from 'next/link'
+import { Plus } from 'lucide-react'
+import { Badge } from '@/components/ui'
+import { money } from '@/lib/domain/analytics'
+import { readStore } from '@/lib/repository/store'
+export const dynamic='force-dynamic'
+export default async function JobsPage(){const store=await readStore();return <div className="page"><div className="page-head"><div><div className="eyebrow">Completed work</div><h1>Job history</h1><p className="subtle">Closed-loop jobs preserve the original preflight; legacy imports still build historical memory.</p></div><Link href="/jobs/new" className="btn"><Plus size={16}/>Import legacy completed job</Link></div><div className="table-wrap"><table><thead><tr><th>Job</th><th>Source</th><th>Completed</th><th>Original budget</th><th>Actual</th><th>Adjusted variance</th><th>Tags</th></tr></thead><tbody>{store.jobs.map((job)=>{const delta=jobScopeComparison(job)?.costDeltaPct??null;return <tr key={job.id}><td><Link href={`/jobs/${job.id}`}><strong>{job.name}</strong><div className="list-item-meta">{job.projectType} · {job.location}</div></Link></td><td>{job.sourceEstimateId?<Link href={`/estimates/${job.sourceEstimateId}`}><Badge tone="confirmed">closed loop</Badge></Link>:<Badge tone="neutral">legacy</Badge>}</td><td>{new Date(job.completedAt+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</td><td>{money(job.estimatedTotal)}</td><td>{money(job.actualTotal)}</td><td className={delta!==null&&delta>0.05?'variance-pos':'variance-good'}>{delta===null?'Scope unverified':`${delta>=0?'+':''}${Math.round(delta*100)}%`}</td><td>{job.tags.slice(0,3).join(' · ')}</td></tr>})}</tbody></table></div></div>}

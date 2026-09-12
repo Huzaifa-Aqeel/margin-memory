@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Next.js and generated output
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+
+# Tests and local tooling
+playwright-report/
+test-results/
+blob-report/
+*.log
+.agentcore-*.json
+supabase/.temp/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+*~

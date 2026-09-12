@@ -1,0 +1,5 @@
+project_id = "margin-memory"
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000"]

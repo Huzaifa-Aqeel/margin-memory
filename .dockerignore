@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.env*
+!.env.example
+.agentcore-*.json
+test-results
+playwright-report
+*.tsbuildinfo

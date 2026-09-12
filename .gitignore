@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Next.js and build output
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+
+# Test and browser artifacts
+playwright-report/
+test-results/
+blob-report/
+*.log
+npm-debug.log*
+
+# Supabase CLI state
+supabase/.temp/
+**/supabase/.temp/
+
+# AWS/AgentCore local output
+.agentcore-*.json
+cdk.out/
+
+# Editor, OS, and Codex session state
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.agents/
+.codex/
+
+# Temporary files
+*.tmp
+*.swp
+*~
