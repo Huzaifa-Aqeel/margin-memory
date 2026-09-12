@@ -1,4 +1,5 @@
-import { comparisonVariances, hasReconciledScope } from '@/lib/domain/scope'
+import { comparisonVariances } from '@/lib/domain/scope'
+import {isJobEligibleForTrustedMemory} from '@/lib/domain/memory-policy'
 import { z } from 'zod'
 import { median } from '@/lib/domain/analytics'
 import type { CostCategory, Finding, Job } from '@/lib/domain/types'
@@ -13,7 +14,7 @@ export const actions = {
   scope: { title:'Confirm scope assumptions', recommendation:'Confirm the documented scope and exclusions before final review.', question:'Have the scope and exclusions been confirmed?' },
 } as const
 export const AgentOutputSchema=z.object({
-  findings:z.array(z.object({category:z.enum(categories),severity:z.enum(['low','medium','high']),action:z.enum(['access','pathway','pricing','category','scope']),calculationRefs:z.array(z.string().uuid()).min(1).max(3),jobEvidenceRefs:z.array(z.string().uuid()).max(4)}).strict()).max(3),
+  findings:z.array(z.object({category:z.enum(categories),severity:z.enum(['low','medium','high']),action:z.enum(['access','pathway','pricing','category','scope']),calculationRefs:z.array(z.string().uuid()).min(1).max(3),jobEvidenceRefs:z.array(z.string().uuid()).max(4),lessonEvidenceRefs:z.array(z.string().uuid()).max(3).default([])}).strict()).max(3),
   questions:z.array(z.enum(['access','pathway','pricing','category','scope'])).max(2),
 }).strict()
 export type AgentOutput=z.infer<typeof AgentOutputSchema>
@@ -21,7 +22,7 @@ export type Observation={jobId:string;name:string;costDelta:number;hoursDelta:nu
 export type Calculation={category:CostCategory;comparableJobIds:string[];sampleSize:number;overrunCount:number;overrunFrequency:number;medianVariancePct:number;minimumVariancePct:number;maximumVariancePct:number;observations:Observation[];missingDataCount?:number}
 type Base={id:string;investigationId:string;createdAt:string}
 export type ToolEvidence=Base & (
-  | {kind:'search';toolName:'search_similar_jobs'|'search_lessons';result:{jobIds:string[]}}
+  | {kind:'search';toolName:'search_similar_jobs'|'search_lessons';result:{jobIds:string[];lessonIds?:string[];query?:string;comparability?:Array<{jobId:string;score:number;matched:string[];unavailable:string[]}>;lessons?:Array<{lessonId:string;sourceJobId:string;similarity?:number}>}}
   | {kind:'inspection';toolName:'inspect_job';result:{jobId:string;name:string;variances:Job['variances']}}
   | {kind:'calculation';toolName:'calculate_category_risk';result:Calculation}
   | {kind:'document';toolName:'inspect_project_documents';result:{id:string;fileName:string;text:string}[]}
@@ -42,7 +43,7 @@ export class EvidenceLedger {
   retrieved(jobId:string){return this.all().some(e=>e.kind==='search'&&e.result.jobIds.includes(jobId))}
 }
 export function calculateRisk(jobs:Job[],category:CostCategory):Calculation {
-  if(jobs.some(job=>!hasReconciledScope(job)))throw new Error('Job scope must be reconciled before calculation')
+  if(jobs.some(job=>!isJobEligibleForTrustedMemory(job)))throw new Error('Every calculation job must be eligible for trusted memory')
   const observations=jobs.flatMap(job=>{const v=comparisonVariances(job).find(v=>v.category===category);return v?[{jobId:job.id,name:job.name,costDelta:v.costDelta,hoursDelta:v.hoursDelta,costDeltaPct:v.costDeltaPct,hoursDeltaPct:v.hoursDeltaPct}]:[]})
   const values=observations.map(v=>category==='labor'?(v.hoursDeltaPct??v.costDeltaPct):v.costDeltaPct).filter((v):v is number=>v!==null&&Number.isFinite(v))
   const overrunCount=values.filter(v=>v>0.05).length
@@ -55,11 +56,12 @@ export function renderAgentOutput(raw:unknown,ledger:EvidenceLedger){
   const findings:RenderedFinding[]=output.findings.map(f=>{
     const calculations=f.calculationRefs.map(ref=>{const e=ledger.get(ref);if(e.kind!=='calculation'||e.result.category!==f.category||!e.result.sampleSize)throw new Error('Finding requires a nonempty calculation for its category');return e})
     const inspected=f.jobEvidenceRefs.map(ref=>{const e=ledger.get(ref);if(e.kind!=='inspection')throw new Error('Job citation requires inspection evidence');return e})
+    const lessonSearches=f.lessonEvidenceRefs.map(ref=>{const e=ledger.get(ref);if(e.kind!=='search'||e.toolName!=='search_lessons'||!e.result.lessonIds?.length)throw new Error('Lesson citation requires retrieved lesson evidence');return e})
     const jobIds=[...new Set([...calculations.flatMap(e=>e.result.observations.map(o=>o.jobId)),...inspected.map(e=>e.result.jobId)])]
     for(const jobId of jobIds)if(!ledger.retrieved(jobId))throw new Error('Cited job was not retrieved in this investigation')
     const calc=calculations[0].result
     const evidence=classifyEvidence({sampleSize:calc.sampleSize,comparableJobCount:calc.comparableJobIds.length,missingDataCount:calc.missingDataCount})
-    return {category:f.category,severity:f.severity,title:actions[f.action].title,claim:`${calc.overrunCount} of ${calc.sampleSize} completed jobs exceeded the scope-adjusted ${f.category} budget by more than 5%.`,rationale:`Variance against approved scope; this does not establish cause. Median variance ${percent(calc.medianVariancePct)}; range ${percent(calc.minimumVariancePct)} to ${percent(calc.maximumVariancePct)}; overrun frequency ${percent(calc.overrunFrequency)}. Evidence strength: ${evidence.label}. ${evidence.explanation} ${evidenceDisclaimer()}`,recommendation:actions[f.action].recommendation,confidence:Math.min(0.95,0.5+calc.sampleSize*0.05),evidenceRefs:[...new Set([...f.calculationRefs,...f.jobEvidenceRefs])],evidence:jobIds.map(jobId=>{const o=calculations.flatMap(e=>e.result.observations).find(o=>o.jobId===jobId);const inspection=inspected.find(e=>e.result.jobId===jobId);return{jobId,label:o?.name??inspection?.result.name??'Completed job',detail:o?`Cost difference $${o.costDelta.toFixed(2)}; hours difference ${o.hoursDelta.toFixed(2)}.`:'Inspected completed-job record.'}})}
+    return {category:f.category,severity:f.severity,title:actions[f.action].title,claim:`${calc.overrunCount} of ${calc.sampleSize} completed jobs exceeded the scope-adjusted ${f.category} budget by more than 5%.`,rationale:`Variance against approved scope; this does not establish cause. Median variance ${percent(calc.medianVariancePct)}; range ${percent(calc.minimumVariancePct)} to ${percent(calc.maximumVariancePct)}; overrun frequency ${percent(calc.overrunFrequency)}. Evidence strength: ${evidence.label}. ${evidence.explanation} ${evidenceDisclaimer()}`,recommendation:actions[f.action].recommendation,confidence:Math.min(0.95,0.5+calc.sampleSize*0.05),evidenceRefs:[...new Set([...f.calculationRefs,...f.jobEvidenceRefs,...lessonSearches.map(value=>value.id)])],evidence:jobIds.map(jobId=>{const o=calculations.flatMap(e=>e.result.observations).find(o=>o.jobId===jobId);const inspection=inspected.find(e=>e.result.jobId===jobId);return{jobId,label:o?.name??inspection?.result.name??'Completed job',detail:o?`Cost difference $${o.costDelta.toFixed(2)}; hours difference ${o.hoursDelta.toFixed(2)}.`:'Inspected completed-job record.'}})}
   })
   // Questions are selected from a bounded vocabulary; no model-authored arithmetic enters product copy.
   const questions=[...new Set(output.questions)].map(topic=>({prompt:actions[topic].question,context:actions[topic].recommendation,options:['Yes — confirmed','No — not confirmed','Not sure yet']}))

@@ -8,7 +8,7 @@ import 'server-only'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Estimate, FindingOutcomeVerdict, Job, Lesson, LifecycleStatus } from '@/lib/domain/types'
-import type { ImportLineProvenanceInput, ImportReviewAnalysis, ImportReviewRecord, StagedImportFile } from '@/lib/import-contract'
+import { ImportReviewError, type ImportLineProvenanceInput, type ImportReviewAnalysis, type ImportReviewRecord, type StagedImportFile } from '@/lib/import-contract'
 import { getCurrentWorkspace, requireWorkspace } from './workspace'
 import { readStoreFor } from './data'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -27,7 +27,7 @@ export async function saveEstimate(estimate: Estimate) {
 
 export async function saveJob(job: Job, lessons: Lesson[] = []) {
   const { workspace,userId } = await requireWorkspace(); const orgId=workspace.id;const admin=createAdminClient()
-  const payload={scope_review:job.scopeReview??unknownScope,id:job.id,organization_id:orgId,name:job.name,project_type:job.projectType,customer_type:job.customerType,location:job.location,completed_at:job.completedAt,tags:job.tags,notes:job.notes,estimated_total:job.estimatedTotal,actual_total:job.actualTotal,gross_margin_pct:job.grossMarginPct??null,created_at:new Date().toISOString()}
+  const payload={scope_review:job.scopeReview??unknownScope,id:job.id,organization_id:orgId,name:job.name,project_type:job.projectType,customer_type:job.customerType,location:job.location,completed_at:job.completedAt,tags:job.tags,notes:job.notes,estimated_total:job.estimatedTotal,actual_total:job.actualTotal,gross_margin_pct:job.grossMarginPct??null,estimate_baseline_role:job.estimateBaselineRole??null,data_origin:job.dataOrigin??'production',created_at:new Date().toISOString()}
   const estimateLines=estimateLineRows(job.estimateLines)
   const actualLines=actualLineRows(job.actualLines)
   const variances=job.variances.map(v=>({category:v.category,estimated_cost:v.estimatedCost,actual_cost:v.actualCost,estimated_hours:v.estimatedHours,actual_hours:v.actualHours,cost_delta:v.costDelta,cost_delta_pct:v.costDeltaPct,hours_delta:v.hoursDelta,hours_delta_pct:v.hoursDeltaPct}))
@@ -49,7 +49,8 @@ export async function recordFindingResponse(findingId:string,responseId:string,r
   return data
 }
 export async function updateLessonStatus(lessonId:string,status:'confirmed'|'rejected') {
-  const {supabase,workspace}=await requireWorkspace(); const {data,error}=await supabase.from('lessons').update({status,updated_at:new Date().toISOString()}).eq('organization_id',workspace.id).eq('id',lessonId).select('*').single(); if(error)throw error; return rows.lessons.parse(data)
+  const {workspace,userId}=await requireWorkspace();const admin=createAdminClient();const {error}=await admin.rpc('set_lesson_status_server',{p_organization_id:workspace.id,p_actor_user_id:userId,p_lesson_id:lessonId,p_status:status});if(error)throw error
+  const{data,error:readError}=await admin.from('lessons').select('id,organization_id,job_id,title,category,lesson,cause,impact_summary,confidence,status,created_at,updated_at').eq('organization_id',workspace.id).eq('id',lessonId).single();if(readError)throw readError;return rows.lessons.parse(data)
 }
 export async function answerHumanQuestion(estimateId:string,questionId:string,answer:string) {
   const {supabase,workspace}=await requireWorkspace()
@@ -73,25 +74,54 @@ export async function getAuthenticatedSupabase() {
 const reviewRowSchema=z.object({
  id:z.string(),organization_id:z.string(),user_id:z.string(),import_kind:z.enum(['new_estimate','historical_job','closeout_actual']),parser_version:z.string(),report_hash:z.string(),context:z.record(z.string(),z.string().nullable()),reports:z.array(z.unknown()),issues:z.array(z.unknown()),completeness:z.unknown().nullable(),status:z.enum(['staged','committed','expired','cleaned']),expires_at:z.string(),result_estimate_id:z.string().nullable(),result_job_id:z.string().nullable(),
 })
-const reviewFileSchema=z.object({id:z.string(),role:z.enum(['estimate','actuals','notes','project_document']),ordinal:z.coerce.number(),file_name:z.string(),storage_path:z.string(),mime_type:z.string(),size_bytes:z.coerce.number(),file_sha256:z.string(),extracted_text:z.string(),worksheet:z.string().nullable()})
+const reviewFileSchema=z.object({id:z.string(),role:z.enum(['estimate','actuals','notes','project_document']),ordinal:z.coerce.number(),file_name:z.string(),storage_path:z.string(),mime_type:z.string(),size_bytes:z.coerce.number(),file_sha256:z.string(),extracted_text:z.string(),worksheet:z.string().nullable(),source_type:z.enum(['xlsx_upload','csv_upload','excel_live_snapshot']).nullable().optional(),source_adapter_version:z.string().nullable().optional(),source_metadata:z.record(z.string(),z.unknown()).nullable().optional(),canonical_snapshot_hash:z.string().nullable().optional(),source_captured_at:z.string().nullable().optional()})
 
 export async function createImportReviewRecord(args:{id:string;analysis:ImportReviewAnalysis;files:StagedImportFile[];expiresAt:string}){
  const {organizationId,userId}=await getAuthenticatedSupabase();const admin=createAdminClient()
- const {data,error}=await admin.rpc('create_import_review',{p_organization_id:organizationId,p_actor_user_id:userId,p_review_id:args.id,p_import_kind:args.analysis.importKind,p_parser_version:args.analysis.parserVersion,p_report_hash:await import('@/lib/import-contract').then(module=>module.hashImportAnalysis(args.analysis)),p_context:args.analysis.context,p_reports:args.analysis.reports,p_issues:args.analysis.issues,p_completeness:args.analysis.completeness??null,p_files:args.files.map(file=>({id:file.id,role:file.role,ordinal:file.ordinal,file_name:file.fileName,storage_path:file.storagePath,mime_type:file.mimeType,size_bytes:file.sizeBytes,sha256:file.sha256,extracted_text:file.extractedText,worksheet:file.worksheet})),p_expires_at:args.expiresAt})
+ const {data,error}=await admin.rpc('create_import_review',{p_organization_id:organizationId,p_actor_user_id:userId,p_review_id:args.id,p_import_kind:args.analysis.importKind,p_parser_version:args.analysis.parserVersion,p_report_hash:await import('@/lib/import-contract').then(module=>module.hashImportAnalysis(args.analysis)),p_context:args.analysis.context,p_reports:args.analysis.reports,p_issues:args.analysis.issues,p_completeness:args.analysis.completeness??null,p_files:args.files.map(file=>({id:file.id,role:file.role,ordinal:file.ordinal,file_name:file.fileName,storage_path:file.storagePath,mime_type:file.mimeType,size_bytes:file.sizeBytes,sha256:file.sha256,extracted_text:file.extractedText,worksheet:file.worksheet,source_type:file.sourceType??null,source_adapter_version:file.sourceAdapterVersion??null,source_metadata:file.sourceMetadata??{},canonical_snapshot_hash:file.canonicalSnapshotHash??null,source_captured_at:file.sourceCapturedAt??null})),p_expires_at:args.expiresAt})
  if(error)throw error;return data as string
 }
 
 export async function getImportReviewRecord(reviewId:string):Promise<ImportReviewRecord>{
  const {organizationId,userId}=await getAuthenticatedSupabase();const admin=createAdminClient()
  const [{data,error},{data:fileRows,error:fileError}]=await Promise.all([admin.from('import_reviews').select('*').eq('organization_id',organizationId).eq('user_id',userId).eq('id',reviewId).maybeSingle(),admin.from('import_review_files').select('*').eq('organization_id',organizationId).eq('import_review_id',reviewId).order('role').order('ordinal')])
- if(error)throw error;if(fileError)throw fileError;if(!data)throw new Error('Import review not found or no longer available.')
+ if(error)throw error;if(fileError)throw fileError;if(!data)throw new ImportReviewError('Import review not found or no longer available.')
  const row=reviewRowSchema.parse(data);const files=z.array(reviewFileSchema).parse(fileRows)
- return{id:row.id,organizationId:row.organization_id,userId:row.user_id,importKind:row.import_kind,parserVersion:row.parser_version,reportHash:row.report_hash,context:row.context,reports:row.reports as ImportReviewRecord['reports'],issues:row.issues as ImportReviewRecord['issues'],completeness:(row.completeness??undefined) as ImportReviewRecord['completeness'],status:row.status,expiresAt:row.expires_at,resultEstimateId:row.result_estimate_id??undefined,resultJobId:row.result_job_id??undefined,files:files.map(file=>({id:file.id,role:file.role,ordinal:file.ordinal,fileName:file.file_name,storagePath:file.storage_path,mimeType:file.mime_type,sizeBytes:file.size_bytes,sha256:file.file_sha256,extractedText:file.extracted_text,worksheet:file.worksheet}))}
+ return{id:row.id,organizationId:row.organization_id,userId:row.user_id,importKind:row.import_kind,parserVersion:row.parser_version,reportHash:row.report_hash,context:row.context,reports:row.reports as ImportReviewRecord['reports'],issues:row.issues as ImportReviewRecord['issues'],completeness:(row.completeness??undefined) as ImportReviewRecord['completeness'],status:row.status,expiresAt:row.expires_at,resultEstimateId:row.result_estimate_id??undefined,resultJobId:row.result_job_id??undefined,files:files.map(file=>({id:file.id,role:file.role,ordinal:file.ordinal,fileName:file.file_name,storagePath:file.storage_path,mimeType:file.mime_type,sizeBytes:file.size_bytes,sha256:file.file_sha256,extractedText:file.extracted_text,worksheet:file.worksheet,sourceType:file.source_type??undefined,sourceAdapterVersion:file.source_adapter_version??undefined,sourceMetadata:file.source_metadata??undefined,canonicalSnapshotHash:file.canonical_snapshot_hash??undefined,sourceCapturedAt:file.source_captured_at??undefined}))}
+}
+
+export type ExcelSourceBinding={latestSnapshotHash:string;latestProfileHash:string;latestReviewId:string;latestEstimateId:string}
+export async function getExcelSourceBinding(sourceIdentityHash:string):Promise<ExcelSourceBinding|undefined>{
+ const {organizationId}=await getAuthenticatedSupabase();const admin=createAdminClient()
+ const{data,error}=await admin.from('estimate_source_bindings').select('latest_snapshot_hash,latest_profile_hash,latest_review_id,latest_estimate_id').eq('organization_id',organizationId).eq('source_type','excel_live_snapshot').eq('source_identity_hash',sourceIdentityHash).maybeSingle()
+ if(error)throw error;if(!data)return undefined
+ return{latestSnapshotHash:String(data.latest_snapshot_hash),latestProfileHash:String(data.latest_profile_hash),latestReviewId:String(data.latest_review_id),latestEstimateId:String(data.latest_estimate_id)}
+}
+
+export async function createExcelIntegrationRun(args:{id:string;sourceIdentityHash:string;snapshotHash:string;adapterVersion:string;capturedAt:string;status:'previewed'|'ready'|'failed';reviewId?:string;failureStage?:string;errorMessage?:string}){
+ const{organizationId,userId}=await getAuthenticatedSupabase();const admin=createAdminClient()
+ const{error}=await admin.from('excel_integration_runs').insert({id:args.id,organization_id:organizationId,user_id:userId,source_identity_hash:args.sourceIdentityHash,snapshot_hash:args.snapshotHash,adapter_version:args.adapterVersion,captured_at:args.capturedAt,status:args.status,review_id:args.reviewId??null,failure_stage:args.failureStage??null,error_message:args.errorMessage??null})
+ if(error)throw error
+}
+
+export async function updateExcelIntegrationRun(runId:string,args:{status:'ready'|'committing'|'running'|'needs_input'|'completed'|'failed';reviewId:string;estimateId?:string;investigationId?:string;failureStage?:string;errorMessage?:string}){
+ const{organizationId,userId}=await getAuthenticatedSupabase();const admin=createAdminClient()
+ const{data,error}=await admin.from('excel_integration_runs').update({status:args.status,estimate_id:args.estimateId,investigation_id:args.investigationId,failure_stage:args.failureStage??null,error_message:args.errorMessage??null,updated_at:new Date().toISOString()}).eq('organization_id',organizationId).eq('user_id',userId).eq('review_id',args.reviewId).eq('id',runId).select('id').maybeSingle()
+ if(error)throw error;if(!data)throw new Error('Excel integration operation not found.')
+}
+
+export async function getLatestInvestigationId(estimateId:string){
+ const{organizationId}=await getAuthenticatedSupabase();const admin=createAdminClient();const{data,error}=await admin.from('investigations').select('id').eq('organization_id',organizationId).eq('estimate_id',estimateId).order('started_at',{ascending:false}).limit(1).maybeSingle();if(error)throw error;return data?String(data.id):undefined
+}
+
+export async function updateLatestExcelRunForEstimate(estimateId:string,status:'running'|'needs_input'|'completed'|'failed',errorMessage?:string){
+ const{organizationId,userId}=await getAuthenticatedSupabase();const admin=createAdminClient();const{data,error}=await admin.from('excel_integration_runs').select('id,review_id').eq('organization_id',organizationId).eq('user_id',userId).eq('estimate_id',estimateId).order('created_at',{ascending:false}).limit(1).maybeSingle();if(error)throw error;if(!data)return
+ await updateExcelIntegrationRun(String(data.id),{status,reviewId:String(data.review_id),estimateId,investigationId:await getLatestInvestigationId(estimateId),failureStage:status==='failed'?'preflight':undefined,errorMessage:status==='failed'?(errorMessage||'Preflight failed.'):undefined})
 }
 
 function estimateLineRows(lines:Estimate['lines']){return lines.map(line=>({id:line.id,category:line.category,description:line.description,quantity:line.quantity??null,unit:line.unit??null,normalized_unit:line.normalizedUnit??null,unit_cost:line.unitCost??null,cost_code:line.costCode??null,phase:line.phase??null,division:line.division??null,estimated_hours:line.estimatedHours??null,estimated_cost:line.estimatedCost}))}
 function actualLineRows(lines:Job['actualLines']){return lines.map(line=>({id:line.id,category:line.category,description:line.description,quantity:line.quantity??null,unit:line.unit??null,normalized_unit:line.normalizedUnit??null,unit_cost:line.unitCost??null,cost_code:line.costCode??null,phase:line.phase??null,division:line.division??null,actual_hours:line.actualHours??null,actual_cost:line.actualCost}))}
-function jobPayload(job:Job){return{scope_review:job.scopeReview??unknownScope,id:job.id,name:job.name,project_type:job.projectType,customer_type:job.customerType,location:job.location,completed_at:job.completedAt,tags:job.tags,notes:job.notes,estimated_total:job.estimatedTotal,actual_total:job.actualTotal,gross_margin_pct:job.grossMarginPct??null,created_at:new Date().toISOString()}}
+function jobPayload(job:Job){return{scope_review:job.scopeReview??unknownScope,id:job.id,name:job.name,project_type:job.projectType,customer_type:job.customerType,location:job.location,completed_at:job.completedAt,tags:job.tags,notes:job.notes,estimated_total:job.estimatedTotal,actual_total:job.actualTotal,gross_margin_pct:job.grossMarginPct??null,data_origin:job.dataOrigin??'production',created_at:new Date().toISOString()}}
 function lessonRows(lessons:Lesson[]){return lessons.map(l=>({id:l.id,title:l.title,category:l.category,lesson:l.lesson,cause:l.cause,impact_summary:l.impactSummary,confidence:l.confidence,status:l.status,created_at:l.createdAt}))}
 function varianceRows(job:Job){return job.variances.map(v=>({category:v.category,estimated_cost:v.estimatedCost,actual_cost:v.actualCost,estimated_hours:v.estimatedHours,actual_hours:v.actualHours,cost_delta:v.costDelta,cost_delta_pct:v.costDeltaPct,hours_delta:v.hoursDelta,hours_delta_pct:v.hoursDeltaPct}))}
 

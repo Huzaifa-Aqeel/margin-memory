@@ -24,6 +24,8 @@ Submitted findings snapshot the final investigation's warnings, ledger entries, 
 
 Imports use staged private source objects and durable review contracts. SHA-256 file identity, parser version, selected worksheet, semantic mapping, reports, warnings, user, organization and import context are bound before commit. Service-only transactional RPCs consume a contract once, attach source documents and line provenance, and return the original result on safe replay. Estimate revisions are separate immutable estimates in one revision group; closeout compares actuals to the specific completed revision. See `IMPORT_PRODUCTION_HARDENING.md`.
 
+Excel Integration Phase 1 is a thin source adapter over that same boundary. Office.js captures one explicitly selected visible table/range as a versioned `excel_live_snapshot`; it does not assign spreadsheet business meaning or call a model. A canonical logical hash binds the reviewed range values/formulas to the import report. The database maps stable workbook-scope identity to the latest immutable estimate revision, after which the ordinary preflight, trusted memory, deterministic calculations, evidence, findings, and persisted questions run unchanged. See [EXCEL_INTEGRATION_PHASE1.md](EXCEL_INTEGRATION_PHASE1.md).
+
 Imported totals and variances are recalculated inside transactional RPCs. Import RPCs use SECURITY DEFINER because direct writes to immutable fact tables are revoked; they explicitly check authenticated organization membership first. Ordinary reads, vector searches and Storage requests still use the user's JWT and RLS. Trusted agent writes require a server-only secret and independently check actor membership.
 
 The lifecycle remains draft → reviewed → submitted → won/lost → in_progress → completed → learning_review → learned. Actuals attach to the same estimate through its linked completed job. Learned requires all submitted warning outcomes and proposed lessons to receive human review.
@@ -37,6 +39,8 @@ Estimator responses to warnings are append-only records with actor, time, lifecy
 The investigator uses Strands BedrockModel with AWS SDK credential resolution. Embeddings are an independent provider module. Titan Embeddings G1 - Text (amazon.titan-embed-text-v1) and Cohere Embed v4 both use exactly 1536 dimensions, matching existing columns/indexes. Titan sends inputText and reads embedding; Cohere uses its own corpus/query input types and response shape. The organization embedding-space record prevents mixing models even when dimensions match.
 
 Each workspace records its embedding provider/model/dimensions. Legacy populated indexes are tagged as OpenAI text-embedding-3-small and cannot be reused as Bedrock indexes. Changing provider requires an explicit administrative reset and full reindex; no mixed vector space is searched. No OpenAI dependency or key is required by the application.
+
+Trusted-memory eligibility, freshness, durable indexing, quarantine, and structured comparability are documented in [TRUSTED_MEMORY.md](TRUSTED_MEMORY.md). Migration 019 clears unverifiable legacy vectors and requires them to be rebuilt with source hashes and exact embedding-space metadata.
 
 ## Verification boundary
 

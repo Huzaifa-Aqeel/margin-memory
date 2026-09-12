@@ -12,6 +12,8 @@ Every business table carries `organization_id`; RLS is enabled on every tenant t
 
 Import review creation and commit follow the same trusted-server pattern. Authenticated clients cannot directly read or mutate `import_reviews`, `import_review_files`, or `import_line_provenance`, and cannot execute their commit RPCs. The server passes the authenticated actor; Postgres checks membership, organization-scoped relationships, review ownership, expiry, warning acknowledgements and single-consumption state. Storage objects are staged under the organization's private prefix before the database transaction.
 
+The public Excel task-pane documents are limited to `/integrations/excel` and its same-origin auth-completion page. Excel mutation APIs remain protected by session middleware and repeat identity/workspace checks in server services. The task pane never receives a service key, AWS credential, organization authority, or vector. Migration 020 revokes authenticated access to Excel source bindings and operational runs; the reviewed source identity, snapshot hash, baseline, and estimate relationship are enforced in the service-only commit transaction. Only selected visible range/table data is transmitted.
+
 `SUPABASE_SECRET_KEY` must exist only in trusted server runtime. Never put it in `NEXT_PUBLIC_*`, browser code, logs, client bundles, or source control.
 
 ## Storage
@@ -28,7 +30,7 @@ Raw API keys stay server-side. Do not log estimate/document contents in producti
 
 ## Human verification
 
-Pending lessons are not embedded or retrievable as trusted company memory. A human must confirm them first. This prevents a model-generated retrospective hypothesis from recursively becoming “evidence” without approval.
+Pending and rejected lessons are not embedded or retrievable as trusted company memory. Confirmation uses a service-only transition that verifies the source job is eligible; browser clients cannot write lesson status, vectors, hashes, or embedding metadata. Demo, unknown-baseline, unreconciled, and quarantined source jobs remain excluded even when a lesson row says `confirmed`.
 
 ## Evidence provenance
 
@@ -60,4 +62,4 @@ Lifecycle-managed estimate fields (`submitted_amount`, award/completion timestam
 
 ## Hardened boundaries
 
-Migrations 006–018 add immutable tool evidence, atomic leases and execution claims, immutable submission snapshots, scope and warning-response records, embedding-space identity, structured actual-completeness checks, durable import reviews, source provenance, revision identity, idempotent commits, staged-file cleanup, and service-only import boundaries. See [ARCHITECTURE.md](ARCHITECTURE.md) for the privilege rationale. `npm test` runs regression attempts against a fresh PostgreSQL database; hosted Auth/Storage checks still require a real Supabase project.
+Migrations 006–020 add immutable tool evidence, atomic leases and execution claims, immutable submission snapshots, scope and warning-response records, embedding-space identity, structured actual-completeness checks, durable import reviews, source provenance, revision identity, idempotent commits, staged-file cleanup, service-only import boundaries, canonical memory eligibility, durable vector jobs, freshness invalidation, quarantine, and Excel live-source/revision binding. See [ARCHITECTURE.md](ARCHITECTURE.md), [TRUSTED_MEMORY.md](TRUSTED_MEMORY.md), and [EXCEL_INTEGRATION_PHASE1.md](EXCEL_INTEGRATION_PHASE1.md). `npm test` runs regression attempts against a fresh PostgreSQL database; hosted Auth/Storage checks still require a real Supabase project.

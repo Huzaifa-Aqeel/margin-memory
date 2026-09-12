@@ -24,7 +24,7 @@ export async function readStoreFor(supabase: SupabaseClient, orgId: string): Pro
     readAll((from,to)=>supabase.from('job_estimate_lines').select('*').eq('organization_id',orgId).order('id').range(from,to),rows.job_estimate_lines),
     readAll((from,to)=>supabase.from('job_actual_lines').select('*').eq('organization_id',orgId).order('id').range(from,to),rows.job_actual_lines),
     readAll((from,to)=>supabase.from('job_variances').select('*').eq('organization_id',orgId).order('id').range(from,to),rows.job_variances),
-    readAll((from,to)=>supabase.from('lessons').select('*').eq('organization_id',orgId).order('id').range(from,to),rows.lessons),
+    readAll((from,to)=>supabase.from('lessons').select('id,organization_id,job_id,title,category,lesson,cause,impact_summary,confidence,status,created_at,updated_at').eq('organization_id',orgId).order('id').range(from,to),rows.lessons),
     readAll((from,to)=>supabase.from('estimates').select('*').eq('organization_id',orgId).order('id').range(from,to),rows.estimates),
     readAll((from,to)=>supabase.from('estimate_lines').select('*').eq('organization_id',orgId).order('id').range(from,to),rows.estimate_lines),
     readAll((from,to)=>supabase.from('findings').select('*').eq('organization_id',orgId).order('id').range(from,to),rows.findings),
@@ -38,7 +38,7 @@ export async function readStoreFor(supabase: SupabaseClient, orgId: string): Pro
 
   const jobEstimateLines = jeQ ?? []; const jobActualLines = jaQ ?? []; const jobVariances = jvQ ?? []
   const jobs: Job[] = (jobsQ ?? []).map((row) => ({
-    id:row.id, scopeReview:scopeQ.find(r=>r.job_id===row.id)?.review, sourceEstimateId:row.source_estimate_id ?? undefined, contractValue:maybeNum(row.contract_value),estimateBaselineRole:row.estimate_baseline_role??undefined, name:row.name, projectType:row.project_type, customerType:row.customer_type, location:row.location,
+    id:row.id, scopeReview:scopeQ.find(r=>r.job_id===row.id)?.review, sourceEstimateId:row.source_estimate_id ?? undefined, contractValue:maybeNum(row.contract_value),estimateBaselineRole:row.estimate_baseline_role??undefined,dataOrigin:row.data_origin,memoryStatus:row.memory_status,memoryQuarantineReason:row.memory_quarantine_reason??undefined,memoryQuarantinedAt:row.memory_quarantined_at??undefined, name:row.name, projectType:row.project_type, customerType:row.customer_type, location:row.location,
     completedAt:row.completed_at, tags:row.tags ?? [], notes:row.notes ?? '', estimatedTotal:num(row.estimated_total), actualTotal:num(row.actual_total), grossMarginPct:maybeNum(row.gross_margin_pct),
     estimateLines:jobEstimateLines.filter((x)=>x.job_id===row.id).map((x)=>mapEstimateLine(x)),
     actualLines:jobActualLines.filter((x)=>x.job_id===row.id).map((x)=>mapActualLine(x)),

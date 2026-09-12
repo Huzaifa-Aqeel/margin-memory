@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import type { ActualLine, CostCategory, EstimateLine } from '@/lib/domain/types'
 import { id } from '@/lib/domain/ids'
+import { parseExcelLiveSnapshot, type ExcelLiveSnapshot } from '@/lib/integrations/excel-snapshot'
 
 export type ImportIssue = {
   severity: 'info' | 'warning' | 'error'
@@ -357,8 +358,25 @@ function reconcileTotals(sourceTotals: number[], normalizedDetailTotal: number):
 function normalizeUnit(value:string){const key=value.trim().toUpperCase().replaceAll('.','');const aliases:Record<string,string>={EACH:'EA',EA:'EA',LF:'LF','LIN FT':'LF','LINEAR FEET':'LF',FT:'FT',FEET:'FT',SF:'SF','SQ FT':'SF',CY:'CY','CU YD':'CY',HR:'HR',HRS:'HR',HOUR:'HR',HOURS:'HR',DAY:'DAY',DAYS:'DAY',LOT:'LOT',LS:'LS','LUMP SUM':'LS'};return aliases[key]}
 function originalValues(row:RawRow,mapping:InternalMapping){return Object.fromEntries((Object.keys(mapping) as Array<keyof ResolvedImportMapping>).flatMap(field=>mapping[field]?[ [field,asText(cell(row,mapping[field]))] ]:[])) as Partial<Record<keyof ResolvedImportMapping,string>>}
 
-async function analyzeFile(file: File, kind: 'estimate' | 'actual', options:ImportParseOptions={}): Promise<{ lines: EstimateLine[] | ActualLine[]; report: SpreadsheetImportReport; provenance:NormalizedLineProvenance[] }> {
-  const sheets = await rawSheetsFromFile(file); const worksheet = worksheetAnalysis(sheets,options.worksheet)
+function rawSheetFromExcelSnapshot(snapshotInput: unknown): { snapshot: ExcelLiveSnapshot; fileName: string; sheets: RawSheet[] } {
+  const snapshot = parseExcelLiveSnapshot(snapshotInput)
+  const rows: RawRow[] = snapshot.cells.map((values, index) => ({
+    rowNumber: index + 1,
+    values: values.map(cell => cell.formula
+      ? cell.value === null
+        ? { formula: cell.formula }
+        : { formula: cell.formula, result: cell.value }
+      : cell.value),
+  }))
+  return {
+    snapshot,
+    fileName: `${snapshot.workbook.name} · live Excel snapshot`,
+    sheets: [{ name: snapshot.worksheet.name, hidden: false, rows, csvIssues: [] }],
+  }
+}
+
+async function analyzeSheets(sheets: RawSheet[], fileName: string, kind: 'estimate' | 'actual', options:ImportParseOptions={}): Promise<{ lines: EstimateLine[] | ActualLine[]; report: SpreadsheetImportReport; provenance:NormalizedLineProvenance[] }> {
+  const worksheet = worksheetAnalysis(sheets,options.worksheet)
   const worksheets = worksheet.analyzed.map(candidate => ({ name: candidate.sheet.name, hidden: candidate.sheet.hidden, plausible: candidate.plausible, selected: candidate === worksheet.selected, headerRow: candidate.header?.rowNumber ?? null, score: candidate.score }))
   const issues: ImportIssue[] = worksheet.analyzed.flatMap(candidate => candidate.sheet.csvIssues)
   if (!worksheet.selected) issues.push({ severity: 'error', code: options.worksheet ? 'worksheet_selection_invalid' : worksheet.analyzed.some(candidate => candidate.plausible && !candidate.sheet.hidden) ? 'worksheet_ambiguous' : 'worksheet_not_usable', message: worksheet.reason })
@@ -421,8 +439,12 @@ async function analyzeFile(file: File, kind: 'estimate' | 'actual', options:Impo
   if (selected?.sheet.name === 'CSV' && rawHeader) { const width = rawHeader.values.length; const inconsistent = dataRows.filter(row => row.values.some(value => asText(value) !== '') && row.values.length !== width); if (inconsistent.length) issues.push({ severity: 'error', code: 'inconsistent_columns', message: `CSV rows ${inconsistent.map(row => row.rowNumber).join(', ')} do not have the same column count as the header.` }) }
   const dimensionValues = (field: 'costCode' | 'phase' | 'division') => [...new Set(lines.map(line => line[field]).filter((value): value is string => Boolean(value?.trim())).map(value => value.trim()))]
   const structuredDimensions: StructuredDimensionValues = { costCodes: dimensionValues('costCode'), phases: dimensionValues('phase'), divisions: dimensionValues('division') }
-  const report: SpreadsheetImportReport = { kind, fileName: file.name, sheetName: selected?.sheet.name ?? '', worksheets, worksheetSelectionRationale: worksheet.reason, headerRow, headers: headers.map(column => column.header), mappedColumns: resolved.mappedColumns, mappingCandidates: resolved.mappingCandidates, sourceRows: dataRows.length, importedRows: lines.length, skippedSummaryRows: excludedRows.filter(row => row.reason === 'summary').length, skippedEmptyRows: excludedRows.filter(row => row.reason === 'blank').length, excludedRows, malformedCells, invalidNumericCells: malformedCells.length, categoryCounts, categoryTotals, totalCost, totalHours, sourceReportedTotal: totals.reconciliation.sourceReportedTotal, normalizedDetailTotal: totalCost, totalReconciliation: totals.reconciliation, laborHourCoverage: resolved.mapping.hours ? 'present' : 'absent', structuredDimensions, issues }
+  const report: SpreadsheetImportReport = { kind, fileName, sheetName: selected?.sheet.name ?? '', worksheets, worksheetSelectionRationale: worksheet.reason, headerRow, headers: headers.map(column => column.header), mappedColumns: resolved.mappedColumns, mappingCandidates: resolved.mappingCandidates, sourceRows: dataRows.length, importedRows: lines.length, skippedSummaryRows: excludedRows.filter(row => row.reason === 'summary').length, skippedEmptyRows: excludedRows.filter(row => row.reason === 'blank').length, excludedRows, malformedCells, invalidNumericCells: malformedCells.length, categoryCounts, categoryTotals, totalCost, totalHours, sourceReportedTotal: totals.reconciliation.sourceReportedTotal, normalizedDetailTotal: totalCost, totalReconciliation: totals.reconciliation, laborHourCoverage: resolved.mapping.hours ? 'present' : 'absent', structuredDimensions, issues }
   return { lines: (selected ? lines : []) as EstimateLine[] | ActualLine[], report,provenance:selected?provenance:[] }
+}
+
+async function analyzeFile(file: File, kind: 'estimate' | 'actual', options:ImportParseOptions={}) {
+  return analyzeSheets(await rawSheetsFromFile(file), file.name, kind, options)
 }
 
 function throwHardBlockers(issues: ImportIssue[]) { const blockers = issues.filter(issue => issue.severity === 'error'); if (blockers.length) throw new SpreadsheetInputError(blockers.map(issue => issue.message).join(' ')) }
@@ -430,6 +452,11 @@ export async function parseEstimateFile(file: File,options:ImportParseOptions={}
 export async function parseActualFile(file: File,options:ImportParseOptions={}): Promise<ActualLine[]> { const parsed = await parseActualFileWithReport(file,options); throwHardBlockers(parsed.report.issues); return parsed.lines }
 export async function parseEstimateFileWithReport(file: File,options:ImportParseOptions={}) { const parsed = await analyzeFile(file, 'estimate',options); return { lines: parsed.lines as EstimateLine[], report: parsed.report,provenance:parsed.provenance } }
 export async function parseActualFileWithReport(file: File,options:ImportParseOptions={}) { const parsed = await analyzeFile(file, 'actual',options); return { lines: parsed.lines as ActualLine[], report: parsed.report,provenance:parsed.provenance } }
+export async function parseEstimateExcelSnapshotWithReport(snapshotInput: unknown) {
+  const source = rawSheetFromExcelSnapshot(snapshotInput)
+  const parsed = await analyzeSheets(source.sheets, source.fileName, 'estimate', { worksheet: source.snapshot.worksheet.name })
+  return { lines: parsed.lines as EstimateLine[], report: parsed.report, provenance: parsed.provenance }
+}
 
 export function assessImportPair(estimate: SpreadsheetImportReport, actual: SpreadsheetImportReport): ImportPairReport {
   const issues: ImportIssue[] = [...estimate.issues, ...actual.issues]; const categories = Object.keys(estimate.categoryCounts) as CostCategory[]

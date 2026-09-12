@@ -238,6 +238,10 @@ jobs:z.object({
   source_estimate_id:z.string().nullable(),
   contract_value:z.coerce.number().finite().nullable(),
   estimate_baseline_role:z.enum(['original_bid','final_submitted','historical_unknown']).nullable(),
+  data_origin:z.enum(['production','demo','synthetic_test']),
+  memory_status:z.enum(['trusted','quarantined']),
+  memory_quarantine_reason:z.string().nullable(),
+  memory_quarantined_at:z.string().nullable(),
 }),
 lessons:z.object({
   id:z.string(),
@@ -250,7 +254,6 @@ lessons:z.object({
   impact_summary:z.string(),
   confidence:z.coerce.number().finite(),
   status:z.enum(['pending','confirmed','rejected']),
-  embedding:z.string().nullable(),
   created_at:z.string(),
   updated_at:z.string(),
 }),

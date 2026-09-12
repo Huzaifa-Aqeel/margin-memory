@@ -10,6 +10,7 @@ function a(id: string, category: CostCategory, description: string, actualCost: 
 function job(input: Omit<Job, 'variances' | 'estimatedTotal' | 'actualTotal'>): Job {
   return {
     scopeReview: {status: 'no_changes', changes: [], actualCompleteness:'confirmed_complete'},
+    estimateBaselineRole:'final_submitted',dataOrigin:'production',memoryStatus:'trusted',
     ...input,
     variances: calculateVariances(input.estimateLines, input.actualLines),
     estimatedTotal: sumEstimate(input.estimateLines),

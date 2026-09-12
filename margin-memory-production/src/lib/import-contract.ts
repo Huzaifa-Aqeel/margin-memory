@@ -2,6 +2,7 @@ import 'server-only'
 
 import { createHash } from 'node:crypto'
 import type { ImportIssue, ImportPairReport, NormalizedLineProvenance, SpreadsheetImportReport } from '@/lib/spreadsheet'
+import type { SpreadsheetSourceType } from '@/lib/integrations/excel-snapshot'
 
 export type ImportKind = 'new_estimate' | 'historical_job' | 'closeout_actual'
 export type ImportFileRole = 'estimate' | 'actuals' | 'notes' | 'project_document'
@@ -27,6 +28,11 @@ export type StagedImportFile = {
   sha256: string
   extractedText: string
   worksheet: string | null
+  sourceType?: SpreadsheetSourceType
+  sourceAdapterVersion?: string
+  sourceMetadata?: Record<string, unknown>
+  canonicalSnapshotHash?: string
+  sourceCapturedAt?: string
 }
 
 export type ImportLineProvenanceInput = NormalizedLineProvenance & { fileRole: 'estimate' | 'actuals' }

@@ -15,3 +15,9 @@ it('does not treat unrelated routes sharing an auth prefix as public',()=>{
  expect(isPublicAuthPath('/login')).toBe(true);expect(isPublicAuthPath('/auth/confirm/')).toBe(true)
  expect(isPublicAuthPath('/login-admin')).toBe(false);expect(isPublicAuthPath('/auth/confirm/private')).toBe(false)
 })
+it('allows only the Excel task-pane documents through auth middleware, never its mutation APIs',()=>{
+ expect(isPublicAuthPath('/integrations/excel')).toBe(true)
+ expect(isPublicAuthPath('/integrations/excel/auth-complete')).toBe(true)
+ expect(isPublicAuthPath('/api/integrations/excel/preview')).toBe(false)
+ expect(isPublicAuthPath('/api/integrations/excel/check')).toBe(false)
+})

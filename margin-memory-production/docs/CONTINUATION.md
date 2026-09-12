@@ -52,6 +52,8 @@ P0/P1 spreadsheet integrity is complete under the current regression suite and a
 
 Detailed import behavior and limits live in [IMPORT_PRODUCTION_HARDENING.md](IMPORT_PRODUCTION_HARDENING.md).
 
+Trusted professional memory hardening is also complete under the current local regression suite. Migration 019 adds one fail-closed eligibility policy for SQL and TypeScript, permanent production/demo origin separation, service-only lesson/vector transitions, versioned canonical embedding content and hashes, zero-vector/model/dimension checks, durable leased indexing jobs with retry state, automatic preflight reconciliation, stale invalidation, quarantine, lesson retrieval provenance, structured professional comparability, and internal readiness diagnostics. Legacy vectors without provable source/model identity are cleared for safe reindexing. See [TRUSTED_MEMORY.md](TRUSTED_MEMORY.md).
+
 ## Latest verification
 
 Final local verification on 2026-09-12:
@@ -61,10 +63,11 @@ Final local verification on 2026-09-12:
 | `npm run verify` | Passed |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed, no warnings |
-| `npm test` | 301 tests passed in 16 files |
-| `npm run test:db` | 107 tests passed; all 18 migrations applied from zero on PostgreSQL 18 + pgvector |
+| `npm test` | 312 tests passed in 17 files |
+| `npm run test:db` | 113 tests passed; all 19 migrations applied from zero on PostgreSQL 18 + pgvector |
 | `npm run build` | Passed with Next.js 16.3.4 |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome npm run test:browser` | 9 tests passed |
+| `npm run smoke:bedrock` | Agent model passed; Titan embedding returned and validated 1536 dimensions |
 | Focused spreadsheet/review-contract suite | 94 tests passed |
 | `git diff --check` | Passed |
 
@@ -72,10 +75,11 @@ The full test command initially hit sandbox-only `EPERM` errors when opening its
 
 ## Database deployment state
 
-There are 18 forward-only migrations. Local zero-to-current migration verification passes. Hosted application of the newest migrations has not been verified. Migrations 017 and 018 must ship with the matching web code:
+There are 19 forward-only migrations. Local zero-to-current migration verification passes. Hosted application of the newest migrations has not been verified. Migrations 017–019 must ship with the matching web code:
 
 - `202609120017_import_production_hardening.sql`
 - `202609120018_trusted_import_boundaries.sql`
+- `202609120019_trusted_memory.sql`
 
 Pause imports during rollout, run `supabase db push --dry-run`, inspect the plan, then run `supabase db push`. Follow [DEPLOYMENT.md](DEPLOYMENT.md); do not rewrite applied migrations.
 
@@ -98,7 +102,7 @@ Standard AWS SDK profile/role resolution is used. Do not rerun paid Bedrock smok
 Repository implementation is ready for a controlled pilot, subject to these external checks:
 
 1. Create the initial Git commit after reviewing `git status`; confirm `.env.local`, `node_modules`, `.next`, test artifacts, and Supabase temporary files remain ignored.
-2. Apply migrations 017–018 to hosted Supabase with the matching application deployment.
+2. Apply migrations 017–019 to hosted Supabase with the matching application deployment, then reconcile company memory to rebuild legacy vectors with current hashes.
 3. Run the full signed-in journey against hosted Auth, Postgres, and Storage in a test organization.
 4. Repeat cross-tenant reads, file access, signed-URL expiry, import retry, and expired-upload cleanup against hosted Supabase.
 5. Validate permissioned, deidentified real contractor exports using [CUSTOMER_IMPORT_VALIDATION_TASKS.md](CUSTOMER_IMPORT_VALIDATION_TASKS.md).
@@ -114,7 +118,8 @@ Repository implementation is ready for a controlled pilot, subject to these exte
 - Expired-import cleanup is request/operations driven; no scheduled worker exists.
 - ZIP/resource checks are bounded defenses, not proof against every parser CPU attack.
 - Scope approval references and mitigation assessments are human attestations, not automated proof of customer approval or causal savings.
-- Demo seed data is synthetic and should not be mixed with a customer pilot workspace.
+- Demo seed data is permanently marked `demo` and excluded from trusted retrieval, evidence, calculations, lessons, and warning calibration.
+- Real contractor retrieval relevance and Titan semantic quality have not yet been validated with permissioned pilot records.
 - The PostgreSQL harness does not emulate hosted Auth, PostgREST, Storage HTTP behavior, email delivery, or session refresh.
 
 ## Do not redo

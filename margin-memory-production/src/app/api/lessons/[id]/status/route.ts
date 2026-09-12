@@ -1,7 +1,7 @@
 import { embeddingsEnabled } from '@/lib/embeddings/provider'
 import { NextResponse } from 'next/server'
 import { getAuthenticatedSupabase, tryFinalizeEstimateLearning, updateLessonStatus } from '@/lib/repository/store'
-import { upsertLessonEmbedding } from '@/lib/embeddings'
+import { repairMemory } from '@/lib/repository/memory'
 
 export const runtime='nodejs'
 export const maxDuration=30
@@ -14,7 +14,7 @@ export async function POST(request:Request,context:{params:Promise<{id:string}>}
     const lesson=await updateLessonStatus(id,status as 'confirmed'|'rejected')
     const auth=await getAuthenticatedSupabase()
     let embeddingStatus:'indexed'|'skipped'|'failed'='skipped'
-    if(status==='confirmed'&&embeddingsEnabled()){try{await upsertLessonEmbedding(auth.supabase,auth.organizationId,lesson);embeddingStatus='indexed'}catch(error){console.error('Lesson embedding failed',error);embeddingStatus='failed'}}
+    if(status==='confirmed'&&embeddingsEnabled()){try{const result=await repairMemory(lesson.job_id);embeddingStatus=result.readiness.pendingLessons===0?'indexed':'failed'}catch(error){console.error('Lesson embedding failed; durable retry retained',error);embeddingStatus='failed'}}
     const {data:job,error:jobError}=await auth.supabase.from('jobs').select('source_estimate_id').eq('organization_id',auth.organizationId).eq('id',lesson.job_id).maybeSingle()
     if(jobError)throw jobError
     const finalized=job?.source_estimate_id?await tryFinalizeEstimateLearning(job.source_estimate_id):false

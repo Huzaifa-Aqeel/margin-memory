@@ -1,19 +1,20 @@
-import { comparisonVariances, hasReconciledScope, ScopeInputError, validateScopeInput } from '@/lib/domain/scope'
+import { comparisonVariances, ScopeInputError, validateScopeInput } from '@/lib/domain/scope'
+import { isJobEligibleForTrustedMemory } from '@/lib/domain/memory-policy'
 import { embeddingsEnabled } from '@/lib/embeddings/provider'
 import { NextResponse } from 'next/server'
 import { calculateVariances, sumActual, sumEstimate } from '@/lib/domain/analytics'
 import { id } from '@/lib/domain/ids'
 import type { Job, Lesson } from '@/lib/domain/types'
-import { upsertJobEmbedding } from '@/lib/embeddings'
 import { hashImportAnalysis, ImportReviewError, spreadsheetProvenance, verifyImportReviewContract, warningAcknowledgements, type EstimateBaselineRole, type ImportReviewAnalysis } from '@/lib/import-contract'
-import { commitReviewedHistoricalJob, getAuthenticatedSupabase, getImportReviewRecord, getJob } from '@/lib/repository/store'
+import { commitReviewedHistoricalJob, getImportReviewRecord, getJob } from '@/lib/repository/store'
+import { repairMemory } from '@/lib/repository/memory'
 import { assessImportPair, IMPORT_PARSER_VERSION, parseActualFileWithReport, parseEstimateFileWithReport, requireImportApproval, SpreadsheetInputError } from '@/lib/spreadsheet'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
 function proposeLesson(job: Job): Lesson | null {
-  if (!hasReconciledScope(job)) return null
+  if (!isJobEligibleForTrustedMemory(job)) return null
   const labor = comparisonVariances(job).find((value) => value.category === 'labor');const materials = comparisonVariances(job).find((value) => value.category === 'materials');const lower=job.notes.toLowerCase()
   if (labor?.hoursDeltaPct && labor.hoursDeltaPct > 0.12) {let cause='Labor finished materially above the scope-adjusted budget.';let lesson='Review the conditions that reduced labor productivity before bidding similar work.';if(/conduit|pathway|riser|reuse/.test(lower)){cause='Existing conduit/pathway reuse did not hold in the field.';lesson='Verify existing pathway capacity before carrying conduit reuse on similar retrofit work.'}else if(/access|occupied|shutdown|after.?hours/.test(lower)){cause='Access or shutdown constraints reduced productive work time.';lesson='Confirm access windows and shutdown restrictions before using normal labor productivity.'}return{id:id(),jobId:job.id,title:'Review labor overrun lesson',category:'labor',lesson,cause,impactSummary:`${Math.round(labor.hoursDelta)} additional labor hours (${Math.round(labor.hoursDeltaPct*100)}%).`,confidence:.82,status:'pending',createdAt:new Date().toISOString()}}
   if(materials?.costDeltaPct&&materials.costDeltaPct>.12)return{id:id(),jobId:job.id,title:'Review material overrun lesson',category:'materials',lesson:'Confirm supplier pricing and specification revision before carrying similar material packages.',cause:'Material actuals exceeded the scope-adjusted budget.',impactSummary:`$${Math.round(materials.costDelta).toLocaleString()} material overrun (${Math.round(materials.costDeltaPct*100)}%).`,confidence:.78,status:'pending',createdAt:new Date().toISOString()}
@@ -39,12 +40,12 @@ export async function POST(request: Request) {
   if(!estimateResult.lines.length||!actualResult.lines.length)return NextResponse.json({error:'No usable spreadsheet lines were found. Check the headers.'},{status:400})
   const baseline=(review.context.estimateBaselineRole??'historical_unknown') as Exclude<EstimateBaselineRole,'revision'>
   const reviewedNotes=review.files.find(file=>file.role==='notes')?.extractedText??''
-  const job:Job={scopeReview,id:id(),estimateBaselineRole:baseline,name:String(form.get('name')||'Imported completed job'),projectType:String(form.get('projectType')||'Office retrofit'),customerType:String(form.get('customerType')||'Commercial'),location:String(form.get('location')||''),completedAt:String(form.get('completedAt')||new Date().toISOString().slice(0,10)),tags:String(form.get('tags')||'').split(',').map(value=>value.trim()).filter(Boolean),notes:[String(form.get('notes')||'').trim(),reviewedNotes].filter(Boolean).join('\n'),estimateLines:estimateResult.lines,actualLines:actualResult.lines,variances:calculateVariances(estimateResult.lines,actualResult.lines),estimatedTotal:sumEstimate(estimateResult.lines),actualTotal:sumActual(actualResult.lines)}
+  const job:Job={scopeReview,id:id(),estimateBaselineRole:baseline,dataOrigin:'production',memoryStatus:'trusted',name:String(form.get('name')||'Imported completed job'),projectType:String(form.get('projectType')||'Office retrofit'),customerType:String(form.get('customerType')||'Commercial'),location:String(form.get('location')||''),completedAt:String(form.get('completedAt')||new Date().toISOString().slice(0,10)),tags:String(form.get('tags')||'').split(',').map(value=>value.trim()).filter(Boolean),notes:[String(form.get('notes')||'').trim(),reviewedNotes].filter(Boolean).join('\n'),estimateLines:estimateResult.lines,actualLines:actualResult.lines,variances:calculateVariances(estimateResult.lines,actualResult.lines),estimatedTotal:sumEstimate(estimateResult.lines),actualTotal:sumActual(actualResult.lines)}
   const lesson=proposeLesson(job);const reportHash=hashImportAnalysis(analysis)
   const committedId=await commitReviewedHistoricalJob({reviewId,reportHash,acknowledged,job,lessons:lesson?[lesson]:[],estimateProvenance:spreadsheetProvenance(estimateResult.provenance,'estimate'),actualProvenance:spreadsheetProvenance(actualResult.provenance,'actuals')})
   const committed=await getJob(committedId);if(!committed)throw new Error('Committed job could not be loaded.')
-  const auth=await getAuthenticatedSupabase();const warnings:string[]=[];let vectorIndexed=false
-  if(hasReconciledScope(committed)&&embeddingsEnabled()){try{await upsertJobEmbedding(auth.supabase,auth.organizationId,committed);vectorIndexed=true}catch(error){console.error(error);warnings.push('Job imported, but vector indexing failed. Use Memory → Rebuild vector memory later.')}}
+  const warnings:string[]=[];let vectorIndexed=false
+  if(isJobEligibleForTrustedMemory(committed)&&embeddingsEnabled()){try{const result=await repairMemory(committed.id);vectorIndexed=result.readiness.pendingJobs===0}catch(error){console.error(error);warnings.push('Job imported, but durable memory indexing is pending. It will retry before the next preflight.')}}
   return NextResponse.json({job:committed,lesson,vectorIndexed,warnings})
  }catch(error){console.error(error);return NextResponse.json({error:error instanceof Error?error.message:'Could not import completed job.'},{status:error instanceof ScopeInputError||error instanceof SpreadsheetInputError?400:error instanceof ImportReviewError?409:500})}
 }

@@ -27,10 +27,11 @@ export function embeddingRequest(model:EmbeddingModel,text:string,inputType:'sea
 }
 export function parseEmbeddingResponse(model:EmbeddingModel,value:unknown){
  const vector=z.array(z.number().finite()).length(EMBEDDING_DIMENSIONS)
- if(model==='amazon.titan-embed-text-v1')return z.object({embedding:vector}).parse(value).embedding
+ if(model==='amazon.titan-embed-text-v1')return nonzero(z.object({embedding:vector}).parse(value).embedding)
  const parsed=z.object({embeddings:z.union([z.array(vector).length(1),z.object({float:z.array(vector).length(1)})])}).parse(value)
- return Array.isArray(parsed.embeddings)?parsed.embeddings[0]:parsed.embeddings.float[0]
+ return nonzero(Array.isArray(parsed.embeddings)?parsed.embeddings[0]:parsed.embeddings.float[0])
 }
+function nonzero(vector:number[]){if(Math.sqrt(vector.reduce((sum,value)=>sum+value*value,0))<=1e-9)throw new Error('Embedding vector has zero norm');return vector}
 export async function embedText(text:string,inputType:'search_document'|'search_query'){
  const config=embeddingConfig();const client=new BedrockRuntimeClient({region:config.region})
  const result=await client.send(new InvokeModelCommand({modelId:config.model,contentType:'application/json',accept:'application/json',body:JSON.stringify(embeddingRequest(config.model,text,inputType))}),{abortSignal:AbortSignal.timeout(30000)})

@@ -7,7 +7,7 @@ import type { ReactNode } from 'react'
 import { logoutAction } from '@/app/actions/auth'
 
 const nav=[{href:'/',label:'Dashboard',icon:LayoutDashboard},{href:'/preflight',label:'Preflight',icon:ClipboardCheck},{href:'/jobs',label:'Completed jobs',icon:Archive},{href:'/memory',label:'Memory',icon:Brain},{href:'/inbox',label:'Inbox',icon:Inbox}]
-const bare=['/login','/signup','/onboarding','/error','/auth/']
+const bare=['/login','/signup','/onboarding','/error','/auth/','/integrations/excel']
 
 export function AppShell({children}:{children:ReactNode}){
   const pathname=usePathname();if(bare.some(p=>pathname===p||pathname.startsWith(p)))return <>{children}</>

@@ -22,6 +22,7 @@ blob-report/
 *.log
 .agentcore-*.json
 supabase/.temp/
+.generated/
 
 # Editors and OS
 .vscode/

@@ -76,6 +76,10 @@ export interface Job {
   actualTotal: number
   grossMarginPct?: number
   estimateBaselineRole?: 'original_bid' | 'final_submitted' | 'historical_unknown'
+  dataOrigin?: 'production' | 'demo' | 'synthetic_test'
+  memoryStatus?: 'trusted' | 'quarantined'
+  memoryQuarantineReason?: string
+  memoryQuarantinedAt?: string
 }
 
 export interface Lesson {

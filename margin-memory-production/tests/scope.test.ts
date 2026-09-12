@@ -53,8 +53,8 @@ it.each([unknown, undefined])('unreconciled or legacy scope cannot become numeri
   const job = scopeJob(); job.scopeReview = scope
   expect(jobScopeComparison(job)).toBeNull()
   expect(proposeCloseoutLessons(job)).toEqual([])
-  expect(() => calculateRisk([job], 'labor')).toThrow('reconciled')
-  expect(() => jobSearchText(job)).toThrow('Reconcile')
+  expect(() => calculateRisk([job], 'labor')).toThrow('trusted memory')
+  expect(() => jobSearchText(job)).toThrow('eligible for trusted memory')
   const estimate = { ...seedStore.estimates[0], submittedFindingIds: seedStore.estimates[0].findings.map(f => f.id) }
   expect(evaluateFindingOutcomes(estimate, job).every(o => o.systemVerdict === 'not_evaluable')).toBe(true)
 })

@@ -16,7 +16,7 @@ export async function extractDocumentText(file: File) {
 
 function safeName(name:string){ return name.replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/-+/g,'-').slice(-120) || 'file' }
 
-export async function stageImportFiles(args:{supabase:SupabaseClient;organizationId:string;reviewId:string;pathScope?:string;files:Array<{role:ImportFileRole;ordinal?:number;file:File;worksheet?:string|null;extractedText?:string}>}):Promise<StagedImportFile[]>{
+export async function stageImportFiles(args:{supabase:SupabaseClient;organizationId:string;reviewId:string;pathScope?:string;files:Array<{role:ImportFileRole;ordinal?:number;file:File;worksheet?:string|null;extractedText?:string;sourceType?:StagedImportFile['sourceType'];sourceAdapterVersion?:string;sourceMetadata?:Record<string,unknown>;canonicalSnapshotHash?:string;sourceCapturedAt?:string}>}):Promise<StagedImportFile[]>{
  const staged:StagedImportFile[]=[]
  try{
   for(const source of args.files){
@@ -25,7 +25,8 @@ export async function stageImportFiles(args:{supabase:SupabaseClient;organizatio
    const path=`${root}/${source.role}/${ordinal}-${fileId}-${safeName(source.file.name)}`
    const {error}=await args.supabase.storage.from('job-files').upload(path,Buffer.from(bytes),{contentType:source.file.type||'application/octet-stream',upsert:false})
    if(error)throw error
-   staged.push({id:fileId,role:source.role,ordinal,fileName:source.file.name,storagePath:path,mimeType:source.file.type||'application/octet-stream',sizeBytes:source.file.size,sha256:sha256Bytes(bytes),extractedText:source.extractedText??'',worksheet:source.worksheet??null})
+   const sourceType=source.sourceType??(source.role==='estimate'||source.role==='actuals'?(source.file.name.toLowerCase().endsWith('.csv')?'csv_upload':'xlsx_upload'):undefined)
+   staged.push({id:fileId,role:source.role,ordinal,fileName:source.file.name,storagePath:path,mimeType:source.file.type||'application/octet-stream',sizeBytes:source.file.size,sha256:sha256Bytes(bytes),extractedText:source.extractedText??'',worksheet:source.worksheet??null,sourceType,sourceAdapterVersion:source.sourceAdapterVersion,sourceMetadata:source.sourceMetadata,canonicalSnapshotHash:source.canonicalSnapshotHash,sourceCapturedAt:source.sourceCapturedAt})
   }
   return staged
  }catch(error){if(staged.length)await args.supabase.storage.from('job-files').remove(staged.map(file=>file.storagePath));throw error}

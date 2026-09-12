@@ -18,7 +18,8 @@
     "test:browser": "playwright test",
     "agent:config": "tsx scripts/agentcore-config.ts",
     "smoke:bedrock": "tsx scripts/smoke-bedrock.ts",
-    "agent:iam": "tsx scripts/agentcore-iam.ts"
+    "agent:iam": "tsx scripts/agentcore-iam.ts",
+    "excel:manifest": "node scripts/generate-excel-manifest.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-agentcore": "^3.1078.0",
@@ -39,6 +40,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@types/node": "^22.0.0",
+    "@types/office-js": "^1.0.512",
     "@types/pg": "^8.15.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

@@ -1,4 +1,5 @@
-import { comparisonVariances, hasReconciledScope } from '@/lib/domain/scope'
+import { comparisonVariances } from '@/lib/domain/scope'
+import {isJobEligibleForTrustedMemory} from '@/lib/domain/memory-policy'
 import type { Estimate, Finding, FindingOutcomeVerdict, Job, Lesson, Variance } from '@/lib/domain/types'
 import { id } from '@/lib/domain/ids'
 
@@ -6,7 +7,7 @@ const meaningful=(v:Variance)=>Math.max(Math.abs(v.costDeltaPct??0),Math.abs(v.h
 const pct=(v:number|null)=>v===null?'n/a':`${v>=0?'+':''}${Math.round(v*100)}%`
 
 export function proposeCloseoutLessons(job:Job):Lesson[]{
-  if(!hasReconciledScope(job))return []
+  if(!isJobEligibleForTrustedMemory(job))return []
   const lessons:Lesson[]=[]
   const notes=job.notes.toLowerCase()
   const labor=comparisonVariances(job).find(v=>v.category==='labor')
@@ -42,7 +43,7 @@ export function evaluateFindingOutcomes(estimate:Estimate,job:Job){
   const submitted=new Set(estimate.submittedFindingIds)
   const findings=estimate.findings.filter(finding=>submitted.has(finding.id))
   return findings.map(finding=>{
-    if(!hasReconciledScope(job))return {id:id(),findingId:finding.id,systemVerdict:'not_evaluable' as const,explanation:'Scope is unreconciled; original budget differences cannot establish an estimating mistake.',evidenceSummary:'Scope reconciliation is required.',confidence:0}
+    if(!isJobEligibleForTrustedMemory(job))return {id:id(),findingId:finding.id,systemVerdict:'not_evaluable' as const,explanation:'This job is not eligible for trusted memory, so its outcome cannot calibrate professional warnings.',evidenceSummary:'An authoritative, production, reconciled baseline is required.',confidence:0}
     let systemVerdict:FindingOutcomeVerdict='not_evaluable'
     let explanation='The closeout data does not contain enough direct evidence to judge this warning automatically.'
     let evidenceSummary='Human confirmation is required.'

@@ -20,7 +20,7 @@ it('validates model-specific responses without accepting another model payload',
 })
 it('rejects incompatible models and malformed vectors',()=>{
  expect(()=>embeddingConfig({BEDROCK_EMBEDDING_MODEL_ID:'amazon.titan-embed-text-v2:0'})).toThrow()
- for(const value of [[1,2],Array(1536).fill(Infinity),Array(1536).fill('0.1')])expect(()=>parseEmbeddingResponse(titan,{embedding:value})).toThrow()
+ for(const value of [[1,2],Array(1536).fill(Infinity),Array(1536).fill('0.1'),Array(1536).fill(0)])expect(()=>parseEmbeddingResponse(titan,{embedding:value})).toThrow()
 })
 it('bounds Unicode inputs without broken characters and rejects empty text',()=>{
  const result=embeddingRequest(titan,'電'.repeat(10000),'search_document')
