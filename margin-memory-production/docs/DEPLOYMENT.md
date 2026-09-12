@@ -32,7 +32,7 @@ cp -n .env.example .env.local
 # Fill .env.local with your actual project settings and selected models.
 ```
 
-Apply all twenty migrations in filename order with a current Supabase CLI:
+Apply all twenty-one migrations in filename order with a current Supabase CLI:
 
 ```bash
 supabase login
@@ -41,7 +41,7 @@ supabase db push --dry-run
 supabase db push
 ```
 
-Migration 012 permits Titan G1 without resizing pgvector columns or mixing existing model spaces. Migration 011 changes the closeout RPC signature. Migrations 015 and 016 add actual-completeness enforcement and persisted cost-code/phase/division coverage. Migration 017 adds durable review contracts, staged sources, provenance, revision identity, idempotent commit RPCs, units, and cleanup leases. Migration 018 removes direct authenticated access to legacy import/closeout write primitives. Migration 019 adds trusted-memory eligibility, origin/quarantine state, vector source identity, durable indexing jobs, and service-only vector/lesson transitions. It clears legacy vectors whose source/model identity cannot be proven; run company-memory reconciliation after deployment. Migration 020 adds the Excel live-snapshot source identity, tenant-scoped revision binding, operational runs, and service-only commit checks. Coordinate migrations 017–020 with the matching application rollout and pause imports/reviews during deployment.
+Migration 012 permits Titan G1 without resizing pgvector columns or mixing existing model spaces. Migration 011 changes the closeout RPC signature. Migrations 015 and 016 add actual-completeness enforcement and persisted cost-code/phase/division coverage. Migration 017 adds durable review contracts, staged sources, provenance, revision identity, idempotent commit RPCs, units, and cleanup leases. Migration 018 removes direct authenticated access to legacy import/closeout write primitives. Migration 019 adds trusted-memory eligibility, origin/quarantine state, vector source identity, durable indexing jobs, and service-only vector/lesson transitions. It clears legacy vectors whose source/model identity cannot be proven; run company-memory reconciliation after deployment. Migration 020 adds the Excel live-snapshot source identity, tenant-scoped revision binding, operational runs, and service-only commit checks. Migration 021 adds explicit estimate origin, atomic/idempotent demo creation, a leased demo-preflight step, and demo-only reset. Coordinate migrations 017–021 with the matching application rollout and pause imports/reviews during deployment.
 
 ## Excel add-in deployment
 

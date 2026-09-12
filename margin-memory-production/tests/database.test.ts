@@ -47,6 +47,12 @@ const actorA=crypto.randomUUID(),actorB=crypto.randomUUID(),orgA=crypto.randomUU
 const uid=()=>crypto.randomUUID()
 async function asUser<T>(actor:string,run:(db:pg.Client)=>Promise<T>){const db=new pg.Client(database.config);await db.connect();try{await db.query('set role authenticated');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);return await run(db)}finally{await db.end()}}
 async function asTrusted<T>(actor:string,run:(db:pg.Client)=>Promise<T>){const db=new pg.Client(database.config);await db.connect();try{await db.query('set role service_role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);return await run(db)}finally{await db.end()}}
+async function demoWorkspace(){const actor=uid(),org=uid();await database.db.query('insert into auth.users(id) values($1)',[actor]);await database.db.query('insert into public.organizations(id,name,created_by) values($1,$2,$3)',[org,'Demo test tenant',actor]);await database.db.query("insert into public.organization_members(organization_id,user_id,role) values($1,$2,'owner')",[org,actor]);return{actor,org}}
+function demoSeedPayload(){
+ const jobId=uid(),estimateId=uid()
+ return{jobId,estimateId,jobs:[{job:{id:jobId,scope_review:{status:'no_changes',changes:[],actualCompleteness:'confirmed_complete'},name:'Sample completed job',project_type:'Office',completed_at:'2026-01-01',estimate_baseline_role:'historical_unknown',data_origin:'demo'},estimate_lines:[{id:uid(),category:'labor',description:'Labor',estimated_cost:100,estimated_hours:10}],actual_lines:[{id:uid(),category:'labor',description:'Labor',actual_cost:125,actual_hours:12}],variances:[],lessons:[{id:uid(),title:'Sample lesson',category:'labor',lesson:'Sample only',cause:'Sample',impact_summary:'Sample',confidence:.8,status:'confirmed'}]}],estimate:{estimate:{id:estimateId,name:'Sample estimate',project_type:'Office',data_origin:'demo'},lines:[{id:uid(),category:'labor',description:'Labor',estimated_cost:100,estimated_hours:10}]}}
+}
+async function seedDemo(org:string,actor:string,payload=demoSeedPayload(),version='demo-v1'){return asTrusted(actor,db=>db.query('select public.seed_demo_workspace_server($1,$2,$3,$4,$5) result',[org,actor,version,JSON.stringify(payload.jobs),JSON.stringify(payload.estimate)]))}
 async function stagedImportReview(args:{kind:'new_estimate'|'historical_job'|'closeout_actual';context?:Record<string,string|null>;issues?:unknown[];expiresAt?:string;roles?:Array<'estimate'|'actuals'|'notes'>}){
  const reviewId=uid(),hash='a'.repeat(64),context=args.context??{},roles=args.roles??(args.kind==='new_estimate'?['estimate']:args.kind==='historical_job'?['estimate','actuals']:['actuals']);const files=[]
  for(const role of roles){const fileId=uid();const root=args.kind==='closeout_actual'?`${orgA}/${context.estimateId}/closeout/reviews/${reviewId}`:`${orgA}/import-staging/${reviewId}`;const storagePath=`${root}/${role}/${fileId}.csv`;await database.db.query("insert into storage.objects(name,bucket_id) values($1,'job-files')",[storagePath]);files.push({id:fileId,role,ordinal:0,file_name:`${role}.csv`,storage_path:storagePath,mime_type:'text/csv',size_bytes:20,sha256:'b'.repeat(64),extracted_text:'',worksheet:'CSV'})}
@@ -82,6 +88,50 @@ async function atStage(stage:string,withFinding=false){const result=await prepar
 beforeAll(async()=>{database=await startDatabase();await database.db.query('insert into auth.users(id) values($1),($2)',[actorA,actorB]);for(const [org,actor] of [[orgA,actorA],[orgB,actorB]]){await database.db.query('insert into public.organizations(id,name,created_by) values($1,$2,$3)',[org,'Test tenant',actor]);await database.db.query("insert into public.organization_members(organization_id,user_id,role) values($1,$2,'owner')",[org,actor])}})
 afterAll(async()=>{if(database)await database.stop()})
 it('applies all migrations from zero',async()=>{const result=await database.db.query("select count(*)::int n from information_schema.tables where table_schema='public'");expect(result.rows[0].n).toBeGreaterThan(15)})
+it('creates a fresh production organization with no implicit demo history',async()=>{const{org}=await demoWorkspace();expect((await database.db.query('select count(*)::int n from public.jobs where organization_id=$1',[org])).rows[0].n).toBe(0);expect((await database.db.query('select count(*)::int n from public.estimates where organization_id=$1',[org])).rows[0].n).toBe(0)})
+it('seeds demo core data atomically, with durable origin and idempotent replay',async()=>{
+ const{org,actor}=await demoWorkspace(),payload=demoSeedPayload();const first=await seedDemo(org,actor,payload),second=await seedDemo(org,actor,demoSeedPayload())
+ expect(first.rows[0].result.estimateId).toBe(payload.estimateId);expect(second.rows[0].result).toMatchObject({estimateId:payload.estimateId,reused:true})
+ expect((await database.db.query('select count(*)::int n from public.jobs where organization_id=$1',[org])).rows[0].n).toBe(1)
+ expect((await database.db.query('select data_origin from public.jobs where id=$1',[payload.jobId])).rows[0].data_origin).toBe('demo')
+ expect((await database.db.query('select data_origin from public.estimates where id=$1',[payload.estimateId])).rows[0].data_origin).toBe('demo')
+ expect((await database.db.query('select count(*)::int n from public.lessons where organization_id=$1',[org])).rows[0].n).toBe(1)
+})
+it('leases demo preflight once, retries failed work, and makes completion idempotent',async()=>{
+ const{org,actor}=await demoWorkspace();await seedDemo(org,actor)
+ const claim=()=>asTrusted(actor,db=>db.query("select public.claim_demo_preflight_server($1,$2,'demo-v1') result",[org,actor]))
+ const first=(await claim()).rows[0].result;expect(first).toMatchObject({claimed:true,status:'preflight_running',leaseToken:expect.any(String)})
+ expect((await claim()).rows[0].result).toMatchObject({claimed:false,status:'preflight_running'})
+ await expect(asTrusted(actor,db=>db.query("select public.finish_demo_seed_server($1,$2,'demo-v1',$3,false,'provider timeout')",[org,actor,uid()]))).rejects.toThrow('lease lost')
+ await asTrusted(actor,db=>db.query("select public.finish_demo_seed_server($1,$2,'demo-v1',$3,false,'provider timeout')",[org,actor,first.leaseToken]))
+ const retry=(await claim()).rows[0].result;expect(retry.claimed).toBe(true);expect(retry.leaseToken).not.toBe(first.leaseToken)
+ await asTrusted(actor,db=>db.query("select public.finish_demo_seed_server($1,$2,'demo-v1',$3,true,null)",[org,actor,retry.leaseToken]))
+ expect((await claim()).rows[0].result).toMatchObject({claimed:false,status:'complete'})
+})
+it('keeps revisions and closeout-derived jobs from demo estimates non-production',async()=>{
+ const{org,actor}=await demoWorkspace(),payload=demoSeedPayload();await seedDemo(org,actor,payload)
+ const revision=uid();await asTrusted(actor,db=>db.query('select public.create_estimate_server($1,$2,$3,$4)',[org,actor,{id:revision,name:'Sample revision',project_type:'Office',parent_estimate_id:payload.estimateId,baseline_role:'revision'},[{id:uid(),category:'labor',description:'Labor',estimated_cost:110}]].map(value=>typeof value==='string'?value:JSON.stringify(value))))
+ expect((await database.db.query('select data_origin from public.estimates where id=$1',[revision])).rows[0].data_origin).toBe('demo')
+ const derived=uid();await database.db.query("insert into public.jobs(id,organization_id,created_by,name,project_type,completed_at,source_estimate_id,data_origin) values($1,$2,$3,'Sample closeout','Office','2026-01-03',$4,'production')",[derived,org,actor,revision])
+ expect((await database.db.query('select data_origin from public.jobs where id=$1',[derived])).rows[0].data_origin).toBe('demo')
+})
+it('rolls back every demo core write when one seeded record is invalid',async()=>{
+ const{org,actor}=await demoWorkspace(),payload=demoSeedPayload(),bad=structuredClone(payload);bad.jobs.push({...structuredClone(bad.jobs[0]),job:{...bad.jobs[0].job,id:uid(),name:'Invalid second sample'},estimate_lines:[{...bad.jobs[0].estimate_lines[0],id:uid(),category:'invalid'}]})
+ await expect(seedDemo(org,actor,bad)).rejects.toThrow()
+ expect((await database.db.query('select count(*)::int n from public.jobs where organization_id=$1',[org])).rows[0].n).toBe(0)
+ expect((await database.db.query('select count(*)::int n from public.estimates where organization_id=$1',[org])).rows[0].n).toBe(0)
+ expect((await database.db.query('select count(*)::int n from public.demo_seed_operations where organization_id=$1',[org])).rows[0].n).toBe(0)
+})
+it('resets only demonstrably demo-origin records and enforces the tenant/service boundary',async()=>{
+ const{org,actor}=await demoWorkspace(),payload=demoSeedPayload();await seedDemo(org,actor,payload)
+ const investigation=uid();await database.db.query('select public.begin_investigation($1,$2,$3,$4)',[org,payload.estimateId,investigation,actor]);await database.db.query('select public.append_investigation_evidence($1,$2,$3,$4)',[org,investigation,actor,{id:uid(),investigationId:investigation,kind:'calibration',toolName:'get_warning_calibration',result:{total:0,evaluable:0,hitRate:null}}])
+ const productionJob=uid();await asTrusted(actor,db=>db.query('select public.create_completed_job_server($1,$2,$3,$4,$5,$6,$7)',[org,actor,{id:productionJob,scope_review:{status:'no_changes',changes:[],actualCompleteness:'confirmed_complete'},name:'Real job',project_type:'Office',completed_at:'2026-01-02',estimate_baseline_role:'final_submitted',data_origin:'production'},[{id:uid(),category:'labor',description:'Labor',estimated_cost:100}],[{id:uid(),category:'labor',description:'Labor',actual_cost:100}],[],[]].map(value=>typeof value==='string'?value:JSON.stringify(value))))
+ await expect(asTrusted(actorB,db=>db.query('select public.reset_demo_workspace_server($1,$2)',[org,actorB]))).rejects.toThrow('not a member')
+ await asUser(actor,db=>expect(db.query('select public.reset_demo_workspace_server($1,$2)',[org,actor])).rejects.toThrow('permission denied'))
+ await asTrusted(actor,db=>db.query('select public.reset_demo_workspace_server($1,$2)',[org,actor]))
+ expect((await database.db.query('select id from public.jobs where organization_id=$1',[org])).rows.map(row=>row.id)).toEqual([productionJob])
+ expect((await database.db.query("select count(*)::int n from public.estimates where organization_id=$1 and data_origin='demo'",[org])).rows[0].n).toBe(0)
+})
 it('isolates tenant reads and rejects cross-tenant parent references',async()=>{const foreignJob=await job(orgB,actorB);await asUser(actorA,async db=>{expect((await db.query('select * from public.jobs where id=$1',[foreignJob])).rowCount).toBe(0);await expect(db.query("insert into public.job_actual_lines(organization_id,job_id,category,description) values($1,$2,'labor','foreign')",[orgA,foreignJob])).rejects.toThrow()})})
 it('executes both vector RPCs and scopes results by tenant and confirmed status',async()=>{
  const vec=JSON.stringify([1,...Array(1535).fill(0)]);const ids:string[]=[]
@@ -167,6 +217,7 @@ it('reconciliation removes an ineligible legacy vector and disables its durable 
  expect((await database.db.query('select status from public.memory_index_jobs where job_id=$1',[jid])).rows[0].status).toBe('disabled')
 })
 it('blocks live duplicate runs and renews leases',async()=>{const id=await estimate();const inv=await begin(id);await expect(begin(id)).rejects.toThrow('investigation_already_running');await database.db.query('select public.renew_investigation_lease($1,$2,$3,$4)',[orgA,id,inv,actorA]);expect((await database.db.query('select lease_expires_at>now() active from public.investigations where id=$1',[inv])).rows[0].active).toBe(true)})
+it('persists an explicit failed state when runtime completion fails and permits a fresh attempt',async()=>{const id=await estimate(),inv=await begin(id);await database.db.query('select public.fail_investigation($1,$2,$3,$4,$5)',[orgA,id,inv,'Agent stopped with limitTurns before producing validated structured output.',actorA]);expect((await database.db.query('select status,error from public.investigations where id=$1',[inv])).rows[0]).toMatchObject({status:'failed',error:expect.stringContaining('limitTurns')});expect((await database.db.query('select investigation_status from public.estimates where id=$1',[id])).rows[0].investigation_status).toBe('failed');expect(await begin(id)).toBeTruthy()})
 it('atomically recovers stale leases; only one simultaneous takeover wins',async()=>{const id=await estimate();const stale=await begin(id);await database.db.query("update public.investigations set lease_expires_at=now()-interval '1 second' where id=$1",[stale]);const clients=[new pg.Client(database.config),new pg.Client(database.config)];await Promise.all(clients.map(c=>c.connect()));try{const results=await Promise.allSettled(clients.map(c=>c.query('select public.begin_investigation($1,$2,$3,$4)',[orgA,id,uid(),actorA])));expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1)}finally{await Promise.all(clients.map(c=>c.end()))}const records=await database.db.query('select status,error,attempt from public.investigations where estimate_id=$1 order by attempt',[id]);expect(records.rows).toEqual([{status:'failed',error:'lease_expired',attempt:1},{status:'investigating',error:null,attempt:2}]);await database.db.query('select public.fail_investigation($1,$2,$3,$4,$5)',[orgA,id,stale,'late old worker',actorA]);expect((await database.db.query('select investigation_status from public.estimates where id=$1',[id])).rows[0].investigation_status).toBe('investigating');await expect(database.db.query('select public.renew_investigation_lease($1,$2,$3,$4)',[orgA,id,stale,actorA])).rejects.toThrow('lease lost')})
 it('rejects privileged calls from tenants and spoofed actor membership',async()=>{const id=await estimate();await asUser(actorA,async db=>{await expect(db.query('select public.begin_investigation($1,$2,$3,$4)',[orgA,id,uid(),actorA])).rejects.toThrow('permission denied')});await expect(database.db.query('select public.begin_investigation($1,$2,$3,$4)',[orgA,id,uid(),actorB])).rejects.toThrow('not a member')})
 it('prevents authenticated clients from bypassing import review through legacy write RPCs',async()=>{

@@ -67,9 +67,11 @@ Operational `excel_integration_runs` record actor, organization, adapter, captur
 
 The manifest adds **Margin Check** to Excel's Home ribbon. The task pane supports signed out, ready, inspection, source selection, exception review, running, human question, findings, zero findings, and safe error/retry states.
 
-Only visible worksheet tables/ranges are offered. One clear source is offered automatically. Multiple visible sources require an explicit choice. Hidden sheets are never captured. The add-in uses read-only Office APIs and the manifest requests `ReadDocument`; it never writes workbook cells, prices, formulas, quantities, markup, or proposal content.
+Only visible worksheet tables/ranges are offered. One named table on one visible worksheet is a bounded automatic source. A bare used range, multiple tables, or multiple visible worksheets requires an explicit choice before any cell data is transmitted. Hidden sheets are never captured. The add-in uses read-only Office APIs and the manifest requests `ReadDocument`; it never writes workbook cells, prices, formulas, quantities, markup, or proposal content.
 
 Findings show at most three persisted results with Fact, Interpretation, Action, and evidence disclosure. Questions use the existing persisted human-question lifecycle and resume through the existing preflight. No browser-memory state is authoritative.
+
+If a duplicate click or lost response encounters a live investigation, the task pane polls the authenticated estimate-state endpoint until the persisted result becomes a question, findings, zero findings, or a safe failure. Preflight failures are recorded on the operational integration run so a reload does not leave invisible correctness state in browser memory.
 
 ## Microsoft/Excel deployment
 
@@ -86,5 +88,7 @@ Phase 1 uses the existing Supabase user identity. It does not require a Microsof
 ## Host and pilot boundary
 
 Browser/unit tests verify the task-pane contract, deterministic source logic, route behavior, Postgres persistence, revision/idempotency, and signed-out UI. They do not emulate Office host behavior. A real Excel desktop/web host and a permissioned contractor workbook remain required pilot checks.
+
+The generated add-in-only XML manifest passes Microsoft's `office-addin-manifest` schema and acceptance validator. This validates manifest structure and declared host/API requirements; it does not validate live Office.js behavior.
 
 Future estimate adapters such as Accubid can produce an explicit estimate-source artifact and enter this same review/commit boundary. QuickBooks/job-cost adapters belong to the distinct actual-source and closeout/reconciliation boundary. Neither is implemented here.

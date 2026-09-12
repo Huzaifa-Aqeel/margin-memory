@@ -8,6 +8,7 @@ import { CloseoutActualsForm, FindingOutcomeActions, LifecycleActions } from '@/
 import { Badge } from '@/components/ui'
 import { money } from '@/lib/domain/analytics'
 import type { LifecycleStatus } from '@/lib/domain/types'
+import {isDemoOrigin} from '@/lib/domain/demo'
 import { getEstimate, getEstimateLifecycleEvents, listDocuments, readStore } from '@/lib/repository/store'
 
 export const dynamic='force-dynamic'
@@ -26,7 +27,7 @@ export default async function EstimatePage({params,searchParams}:{params:Promise
   const stageIndex=stages.indexOf(estimate.lifecycleStatus==='lost'?'submitted':estimate.lifecycleStatus)
   return <div className="page">
     {query.warning&&<div className="warning-banner"><AlertTriangle size={16}/><span>{query.warning}</span></div>}
-    <div className="page-head"><div><div className="eyebrow">Estimate lifecycle · {estimate.projectType}{estimate.revisionNumber?` · revision ${estimate.revisionNumber}`:''}</div><h1>{estimate.name}</h1><p className="subtle">{estimate.location}{estimate.bidDue?` · bid due ${new Date(estimate.bidDue+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}`:''}</p></div><div className="actions"><Badge tone={estimate.lifecycleStatus==='learned'?'confirmed':estimate.lifecycleStatus==='lost'?'neutral':'medium'}>{stageLabel(estimate.lifecycleStatus)}</Badge>{['draft','reviewed'].includes(estimate.lifecycleStatus)&&<RerunReview estimateId={estimate.id}/>}<Link className="btn small" href={`/estimates/new?revisionOf=${estimate.id}`}>Create revision</Link></div></div>
+    <div className="page-head"><div><div className="eyebrow">Estimate lifecycle · {estimate.projectType}{estimate.revisionNumber?` · revision ${estimate.revisionNumber}`:''}</div><h1>{estimate.name}</h1>{isDemoOrigin(estimate)&&<Badge tone="pending">Demo sample</Badge>}<p className="subtle">{estimate.location}{estimate.bidDue?` · bid due ${new Date(estimate.bidDue+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}`:''}</p></div><div className="actions"><Badge tone={estimate.lifecycleStatus==='learned'?'confirmed':estimate.lifecycleStatus==='lost'?'neutral':'medium'}>{stageLabel(estimate.lifecycleStatus)}</Badge>{['draft','reviewed'].includes(estimate.lifecycleStatus)&&<RerunReview estimateId={estimate.id}/>}<Link className="btn small" href={`/estimates/new?revisionOf=${estimate.id}`}>Create revision</Link></div></div>
 
     <div className="lifecycle-strip" aria-label="Estimate lifecycle">{stages.map((stage,index)=><div key={stage} className={`lifecycle-step ${index<=stageIndex?'done':''} ${stage===estimate.lifecycleStatus?'current':''}`}><span>{index+1}</span><strong>{stageLabel(stage)}</strong></div>)}{estimate.lifecycleStatus==='lost'&&<div className="lifecycle-step current lost"><span>×</span><strong>Lost</strong></div>}</div>
 

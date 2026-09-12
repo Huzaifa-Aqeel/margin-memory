@@ -8,7 +8,7 @@ import { scoreJobSimilarity,textSimilarity } from '@/lib/domain/analytics'
 import type { Estimate,Store } from '@/lib/domain/types'
 import { searchJobsVector,searchLessonsVector } from '@/lib/embeddings'
 import { embeddingsEnabled } from '@/lib/embeddings/provider'
-import { calculateRisk,categories,EvidenceLedger } from './provenance'
+import { actions,calculateRisk,categories,EvidenceLedger } from './provenance'
 
 export function createPreflightTools({store,estimate,supabase,organizationId,ledger,heartbeat}:{store:Store;estimate:Estimate;supabase:SupabaseClient;organizationId:string;ledger:EvidenceLedger;heartbeat:()=>Promise<void>}){
  const jobIds=z.array(z.string().uuid()).min(1).max(12)
@@ -39,5 +39,11 @@ export function createPreflightTools({store,estimate,supabase,organizationId,led
   }}),
   tool({name:'check_missing_cost_categories',description:'Find categories absent from the estimate but present in retrieved jobs. Use calculate_category_risk before creating a finding.',inputSchema:z.object({jobIds}),callback:async({jobIds})=>{await heartbeat();const jobs=selectedJobs([...new Set(jobIds)]);const present=new Set(estimate.lines.filter(l=>l.estimatedCost>0).map(l=>l.category));const result=categories.filter(c=>!present.has(c)).map(category=>({category,jobIds:jobs.filter(j=>comparisonVariances(j).some(v=>v.category===category&&v.actualCost>0)).map(j=>j.id),sampleSize:jobs.length})).filter(r=>r.jobIds.length>=2);const evidence=await ledger.record({kind:'missing_categories',toolName:'check_missing_cost_categories',result});return{evidenceId:evidence.id,result}}}),
   tool({name:'get_warning_calibration',description:'Inspect human-confirmed outcomes of earlier warnings.',inputSchema:z.object({category:z.enum(categories).optional()}),callback:async({category})=>{await heartbeat();const {data,error}=await supabase.rpc('get_warning_calibration',{p_organization_id:organizationId,p_category:category??null});if(error)throw error;const row=z.array(z.object({mitigated:z.coerce.number(),total:z.coerce.number(),evaluable:z.coerce.number(),hit_rate:z.coerce.number().nullable()})).parse(data)[0];if(!row)throw new Error('Missing calibration result');const result={mitigated:row.mitigated,total:row.total,evaluable:row.evaluable,hitRate:row.hit_rate};const evidence=await ledger.record({kind:'calibration',toolName:'get_warning_calibration',result});return{evidenceId:evidence.id,...result}}}),
+  tool({name:'request_human_input',description:'Pause only when one focused estimator answer is necessary to finish a material finding.',inputSchema:z.object({topic:z.enum(['access','pathway','pricing','category','scope'])}),callback:({topic},context)=>{
+   if(!context)throw new Error('Strands tool context is required for human input')
+   const prompt=actions[topic].question
+   const answered=estimate.assumptions.find(value=>value.startsWith(`Estimator response to "${prompt}"`));if(answered)return{alreadyAnswered:true,response:answered}
+   return context.interrupt({name:'margin_memory_human_question',reason:{kind:'human_question',topic}})
+  }}),
  ]
 }

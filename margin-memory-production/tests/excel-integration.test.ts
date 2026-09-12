@@ -4,7 +4,7 @@ import type { ImportReviewRecord } from '../src/lib/import-contract'
 import { presentExcelEstimate } from '../src/lib/integrations/excel-contract'
 import { analyzeExcelReview, verifyExcelReviewContract } from '../src/lib/integrations/excel-review-server'
 import { analyzeExcelSnapshotIdentity } from '../src/lib/integrations/excel-snapshot-server'
-import { canonicalExcelSnapshot, canonicalWorkbookLocation, EXCEL_SOURCE_ADAPTER_VERSION, type ExcelLiveSnapshot } from '../src/lib/integrations/excel-snapshot'
+import { automaticExcelSourceCandidate, canonicalExcelSnapshot, canonicalWorkbookLocation, EXCEL_SOURCE_ADAPTER_VERSION, type ExcelLiveSnapshot } from '../src/lib/integrations/excel-snapshot'
 import { parseEstimateExcelSnapshotWithReport } from '../src/lib/spreadsheet'
 
 const profile={name:'Occupied office renovation',projectType:'Tenant fit-out',customerType:'Commercial',location:'Philadelphia',bidDue:null,tags:['occupied'],assumptions:[]}
@@ -23,6 +23,14 @@ const snapshot=(overrides:Partial<ExcelLiveSnapshot>={}):ExcelLiveSnapshot=>({
 })
 
 describe('Excel live-source identity and review binding',()=>{
+ it('auto-selects one bounded named table but never transmits a bare used range without explicit selection',()=>{
+  const usedRange={worksheetId:'sheet',kind:'used_range' as const}
+  const table={worksheetId:'sheet',kind:'table' as const,label:'Estimate table'}
+  expect(automaticExcelSourceCandidate([usedRange])).toBeUndefined()
+  expect(automaticExcelSourceCandidate([usedRange,table])).toBe(table)
+  expect(automaticExcelSourceCandidate([usedRange,table,{worksheetId:'other',kind:'used_range'}])).toBeUndefined()
+ })
+
  it('gives the same logical identity to the same relevant state and ignores capture/display-only changes',()=>{
   const first=snapshot();const second=snapshot({capturedAt:'2026-09-12T10:00:00.000Z',cells:snapshot().cells.map(row=>row.map(cell=>({...cell,text:`display:${cell.text}`})))})
   expect(canonicalExcelSnapshot(second)).toBe(canonicalExcelSnapshot(first))

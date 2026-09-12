@@ -17,6 +17,9 @@ export const AgentOutputSchema=z.object({
   findings:z.array(z.object({category:z.enum(categories),severity:z.enum(['low','medium','high']),action:z.enum(['access','pathway','pricing','category','scope']),calculationRefs:z.array(z.string().uuid()).min(1).max(3),jobEvidenceRefs:z.array(z.string().uuid()).max(4),lessonEvidenceRefs:z.array(z.string().uuid()).max(3).default([])}).strict()).max(3),
   questions:z.array(z.enum(['access','pathway','pricing','category','scope'])).max(2),
 }).strict()
+// Strands pauses through request_human_input. A final structured response is
+// therefore a completed run and cannot also smuggle in an unpersisted pause.
+export const StrandsAgentOutputSchema=AgentOutputSchema.extend({questions:z.array(z.enum(['access','pathway','pricing','category','scope'])).max(0)})
 export type AgentOutput=z.infer<typeof AgentOutputSchema>
 export type Observation={jobId:string;name:string;costDelta:number;hoursDelta:number;costDeltaPct:number|null;hoursDeltaPct:number|null}
 export type Calculation={category:CostCategory;comparableJobIds:string[];sampleSize:number;overrunCount:number;overrunFrequency:number;medianVariancePct:number;minimumVariancePct:number;maximumVariancePct:number;observations:Observation[];missingDataCount?:number}
@@ -65,5 +68,5 @@ export function renderAgentOutput(raw:unknown,ledger:EvidenceLedger){
   })
   // Questions are selected from a bounded vocabulary; no model-authored arithmetic enters product copy.
   const questions=[...new Set(output.questions)].map(topic=>({prompt:actions[topic].question,context:actions[topic].recommendation,options:['Yes — confirmed','No — not confirmed','Not sure yet']}))
-  return {summary:`${findings.length} historical ${findings.length===1?'risk requires':'risks require'} review.`,findings,questions}
+  return {summary:findings.length?`${findings.length} historical ${findings.length===1?'risk requires':'risks require'} review.`:'No material historical risks found.',findings,questions}
 }

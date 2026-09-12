@@ -10,13 +10,15 @@ Evidence strength is derived from persisted deterministic calculations: usable c
 
 The final model schema contains category, severity, a review-action selection and evidence references. It has no free-form numerical claim fields. Unknown fields and foreign/missing calculation references are rejected. Each historical job must have been retrieved and then inspected or consumed by a referenced calculation. Server rendering produces sample size, frequency, median, range, cost and hour differences from persisted tool results. Recommendations/questions are selected from bounded review actions, preventing numerical prose from bypassing the fact boundary. This deliberately limits prose flexibility; expand the action vocabulary in code with tests.
 
-Configured Bedrock failures, malformed output, indexing failures and lease loss remain failures. They are not silently replaced with a successful review. An empty BEDROCK_MODEL_ID explicitly enables a labelled deterministic development review using the same provenance boundary.
+Configured Bedrock failures, malformed output, indexing failures and lease loss remain failures. They are not silently replaced with a successful review. Strands terminal results are interpreted explicitly: only a validated structured completion is rendered; a validated tool interrupt persists a human question; missing output from a turn/token/cancellation limit records failure. An empty BEDROCK_MODEL_ID explicitly enables a labelled deterministic development review using the same provenance boundary.
 
 ## Durable execution
 
 Beginning a review locks the estimate. A live 90-second lease rejects duplicates; an expired lease is marked failed with lease_expired and a replacement attempt is inserted atomically. A separate execution claim prevents duplicate transport delivery from running the same attempt twice. The worker renews every 20 seconds and at tool boundaries; lease loss aborts the model and prevents committing its output. Old workers cannot reset a newer attempt. Results, findings, questions and estimate status commit transactionally.
 
 Answers remain persisted estimator context. They cannot change a live worker's input. Commercial transitions require a completed review and no unresolved findings/questions. No agent tool exposes a commercial mutation.
+
+Demo seeding is a separate, explicit tenant action. Migration 021 commits the sample business rows atomically, leases the external preflight step for retry, records durable completion/failure, and makes repeat requests idempotent. Demo origin propagates through estimate revisions and closeout-derived jobs, so sample history cannot become trusted professional memory. See [AGENT_RUNTIME_AND_DEMO_SAFETY.md](AGENT_RUNTIME_AND_DEMO_SAFETY.md).
 
 ## Historical integrity
 

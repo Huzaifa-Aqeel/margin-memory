@@ -188,6 +188,7 @@ export interface Estimate {
   parentEstimateId?: string
   revisionNumber?: number
   baselineRole?: 'original_bid' | 'revision' | 'final_submitted' | 'historical_unknown'
+  dataOrigin?: 'production' | 'demo' | 'synthetic_test'
 }
 
 export interface Store {

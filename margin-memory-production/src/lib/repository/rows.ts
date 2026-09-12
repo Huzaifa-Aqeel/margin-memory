@@ -75,6 +75,7 @@ estimates:z.object({
   parent_estimate_id:z.string().nullable(),
   revision_number:z.coerce.number().int(),
   baseline_role:z.enum(['original_bid','revision','final_submitted','historical_unknown']),
+  data_origin:z.enum(['production','demo','synthetic_test']),
 }),
 finding_evidence:z.object({
   id:z.string(),

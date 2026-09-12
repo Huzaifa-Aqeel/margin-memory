@@ -20,7 +20,7 @@ export async function getJob(id: string) { const store = await readStore(); retu
 
 export async function saveEstimate(estimate: Estimate) {
   const { workspace,userId } = await requireWorkspace(); const orgId=workspace.id;const admin=createAdminClient()
-  const payload={id:estimate.id,organization_id:orgId,name:estimate.name,project_type:estimate.projectType,customer_type:estimate.customerType,location:estimate.location,bid_due:estimate.bidDue??'',tags:estimate.tags,assumptions:estimate.assumptions,estimated_total:estimate.estimatedTotal,estimated_labor_hours:estimate.estimatedLaborHours,status:'draft',investigation_status:'queued',created_at:estimate.createdAt}
+  const payload={id:estimate.id,organization_id:orgId,name:estimate.name,project_type:estimate.projectType,customer_type:estimate.customerType,location:estimate.location,bid_due:estimate.bidDue??'',tags:estimate.tags,assumptions:estimate.assumptions,estimated_total:estimate.estimatedTotal,estimated_labor_hours:estimate.estimatedLaborHours,status:'draft',investigation_status:'queued',created_at:estimate.createdAt,data_origin:estimate.dataOrigin??'production'}
   const lines=estimateLineRows(estimate.lines)
   const {error}=await admin.rpc('create_estimate_server',{p_organization_id:orgId,p_actor_user_id:userId,p_estimate:payload,p_lines:lines});if(error)throw error;return estimate
 }

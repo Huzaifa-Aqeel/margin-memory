@@ -49,6 +49,15 @@ export type ExcelLiveSnapshot = z.infer<typeof excelLiveSnapshotSchema>
 export type ExcelSnapshotCell = z.infer<typeof excelSnapshotCellSchema>
 export type ExcelSourceSelection = ExcelLiveSnapshot['selection']
 export type SpreadsheetSourceType = 'xlsx_upload' | 'csv_upload' | 'excel_live_snapshot'
+export type ExcelSourceCandidate = { worksheetId: string; kind: 'used_range' | 'selection' | 'table' }
+
+/** A named table is a bounded source chosen by the workbook author. A bare
+ * used range is never auto-captured because it may contain unrelated cells. */
+export function automaticExcelSourceCandidate<T extends ExcelSourceCandidate>(candidates: T[]): T | undefined {
+  const visibleWorksheets = new Set(candidates.map(candidate => candidate.worksheetId))
+  const tables = candidates.filter(candidate => candidate.kind === 'table')
+  return visibleWorksheets.size === 1 && tables.length === 1 ? tables[0] : undefined
+}
 
 export function parseExcelLiveSnapshot(input: unknown): ExcelLiveSnapshot {
   return excelLiveSnapshotSchema.parse(input)
