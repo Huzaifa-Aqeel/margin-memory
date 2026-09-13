@@ -1,5 +1,5 @@
 import {expect,it} from 'vitest'
-import {assessProfessionalComparability,canonicalJobMemoryContent,isJobEligibleForTrustedMemory,isLessonEligibleForTrustedMemory,jobMemoryExclusionReasons,memoryContentHash} from '../src/lib/domain/memory-policy'
+import {assessProfessionalComparability,canonicalJobMemoryContent,historicalEvidenceReadiness,isJobEligibleForTrustedMemory,isLessonEligibleForTrustedMemory,jobMemoryExclusionReasons,memoryContentHash} from '../src/lib/domain/memory-policy'
 import {seedStore} from '../src/lib/seed'
 
 const trusted=()=>structuredClone(seedStore.jobs[0])
@@ -20,6 +20,13 @@ it('trusts only confirmed lessons whose source job is eligible',()=>{
  expect(isLessonEligibleForTrustedMemory(lesson,job)).toBe(true)
  expect(isLessonEligibleForTrustedMemory({...lesson,status:'pending'},job)).toBe(false)
  expect(isLessonEligibleForTrustedMemory(lesson,{...job,dataOrigin:'demo'})).toBe(false)
+})
+it('explains historical readiness without equating a successful commit with trusted evidence',()=>{
+ const job=trusted()
+ expect(historicalEvidenceReadiness(job)).toMatchObject({eligible:true,actualCostsReconciled:true,laborComparisonAvailable:true,reasons:[]})
+ expect(historicalEvidenceReadiness({...job,estimateBaselineRole:'historical_unknown'})).toMatchObject({eligible:false,actualCostsReconciled:true,reasons:['The original or final submitted estimate baseline has not been confirmed.']})
+ const incomplete={...job,scopeReview:{status:'unreconciled' as const,changes:[],actualCompleteness:'unknown' as const}}
+ expect(historicalEvidenceReadiness(incomplete)).toMatchObject({eligible:false,actualCostsReconciled:false,reasons:expect.arrayContaining(['Final actual-cost completeness has not been confirmed.','Estimate and actual scope have not been reconciled.'])})
 })
 it('creates versioned, stable, privacy-minimized job content',()=>{
  const job=trusted();job.name='Jane Smith personal project';job.location='12 Private Street';job.notes='Contact jane@example.com. Occupied access required after hours.'

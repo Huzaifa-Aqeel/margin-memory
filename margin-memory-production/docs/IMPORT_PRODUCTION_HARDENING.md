@@ -4,9 +4,9 @@
 
 Spreadsheet imports use a durable review contract:
 
-1. The authenticated preview route parses the uploaded bytes with `IMPORT_PARSER_VERSION`, resolves a visible worksheet and mapping, calculates SHA-256 for each file, and stages the private source objects in the tenant's `job-files` prefix.
+1. The authenticated preview route parses the uploaded bytes with `IMPORT_PARSER_VERSION`, resolves a visible worksheet and mapping, calculates SHA-256 for each file, and stages the private source objects in the tenant's `job-files` prefix. If a worksheet or semantic column is ambiguous, the route accepts only an explicit validated selection and creates a fresh analysis.
 2. Postgres stores the user, organization, import kind, business context, parser version, reports, issues, selected worksheet, file hashes, analysis hash, and a two-hour expiry in `import_reviews` and `import_review_files`.
-3. Commit receives the files again, hashes them again, reloads the server-owned contract, reparses with the stored worksheet, and recomputes the analysis hash. Browser-supplied report JSON is never authoritative.
+3. Commit receives the files again, hashes them again, reloads the server-owned contract, reparses with the stored worksheet and exact one-based mapped-column indexes, and recomputes the analysis hash. Browser-supplied report JSON or mapping choices at commit are never authoritative.
 4. A service-role-only RPC rechecks the signed-in actor's membership, exact warning acknowledgements, review state, context, and expiry. It creates the business object, attaches the already-staged source documents, stores line provenance, and consumes the review in one PostgreSQL transaction.
 5. A replay of the same review returns its first result. A different review may intentionally import the same file for a different job.
 
@@ -49,6 +49,14 @@ Limits are enforced before or during normalization:
 XLSX ZIP metadata is checked before ExcelJS loads the workbook. Encrypted and ZIP64 workbooks block. These controls bound common decompression and memory attacks; they do not prove that every malformed ZIP/parser CPU attack is impossible. Server request timeouts remain an additional operational boundary.
 
 Only visible, plausible worksheets are automatic candidates. Multiple estimate candidates require an explicit worksheet selection and a new server analysis. Hidden sheets cannot be selected. Actuals that appear split across multiple job-cost worksheets require a consolidated export; Margin Memory does not silently merge them.
+
+## Historical onboarding presentation
+
+The historical-job form uses this same review contract and parser. It does not create a separate convenience parser. Clean reports show concise row, hour, exclusion, and reconciliation summaries, while full worksheets, mappings, categories, totals, and excluded-row diagnostics remain behind **View source details**. Ambiguous worksheets and semantic mappings display only the unresolved choice, then require a fresh server analysis.
+
+Filename-based job metadata suggestions are deterministic, conservative, editable, and non-financial. Generic filenames yield blank fields. The estimator must explicitly confirm the estimate baseline before analysis and must still decide final actual completeness and scope. Commit validates required descriptive metadata server-side and never substitutes generic project/customer values or today's date.
+
+The completion state is separate from database success. It uses the canonical trusted-memory policy to state whether actual costs are reconciled, labor comparison is available, and the job is eligible for future Margin Checks. See [HISTORICAL_ONBOARDING_HARDENING_2026-09-13.md](HISTORICAL_ONBOARDING_HARDENING_2026-09-13.md) for the measured workflow and test evidence.
 
 ## Deployment order
 

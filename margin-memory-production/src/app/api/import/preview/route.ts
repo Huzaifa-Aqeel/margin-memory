@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { extractDocumentText, removeStagedImportFiles, stageImportFiles } from '@/lib/documents'
 import { hashImportAnalysis, type EstimateBaselineRole, type ImportKind, type ImportReviewAnalysis } from '@/lib/import-contract'
 import { cleanupExpiredImportReviews, createImportReviewRecord, getAuthenticatedSupabase, getEstimate } from '@/lib/repository/store'
-import { assessActualAgainstEstimate, assessImportPair, IMPORT_PARSER_VERSION, IMPORT_RESOURCE_LIMITS, parseActualFileWithReport, parseEstimateFileWithReport, type SpreadsheetImportReport } from '@/lib/spreadsheet'
+import { inferHistoricalImportMetadata } from '@/lib/historical-import-metadata'
+import { assessActualAgainstEstimate, assessImportPair, IMPORT_PARSER_VERSION, IMPORT_RESOURCE_LIMITS, parseActualFileWithReport, parseEstimateFileWithReport, parseImportMappingSelection, type SpreadsheetImportReport } from '@/lib/spreadsheet'
 
 export const runtime = 'nodejs'
 
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
     const estimateFile = form.get('estimateFile')
     const actualFile = form.get('actualFile')
     if (!['estimate', 'actual', 'pair'].includes(mode)) return NextResponse.json({ error: 'Invalid preview mode.' }, { status: 400 })
+    if(mode==='pair'&&form.get('estimateBaselineConfirmed')!=='true')return NextResponse.json({error:'Confirm what the estimate file represents before analysis.'},{status:400})
     const required = mode === 'estimate' ? [estimateFile] : mode === 'actual' ? [actualFile] : [estimateFile, actualFile]
     if (required.some((file) => !(file instanceof File) || !file.size)) return NextResponse.json({ error: 'Attach the required spreadsheet files before previewing.' }, { status: 400 })
     const projectDocuments=form.getAll('projectDocuments').filter((value):value is File=>value instanceof File&&value.size>0)
@@ -26,8 +28,10 @@ export async function POST(request: Request) {
 
     const estimateWorksheet=String(form.get('estimateWorksheet')||'')||undefined
     const actualWorksheet=String(form.get('actualWorksheet')||'')||undefined
-    const estimate = estimateFile instanceof File && estimateFile.size ? await parseEstimateFileWithReport(estimateFile,{worksheet:estimateWorksheet}) : undefined
-    const actual = actualFile instanceof File && actualFile.size ? await parseActualFileWithReport(actualFile,{worksheet:actualWorksheet}) : undefined
+    const estimateMapping=parseImportMappingSelection(form.get('estimateMapping'))
+    const actualMapping=parseImportMappingSelection(form.get('actualMapping'))
+    const estimate = estimateFile instanceof File && estimateFile.size ? await parseEstimateFileWithReport(estimateFile,{worksheet:estimateWorksheet,mapping:estimateMapping}) : undefined
+    const actual = actualFile instanceof File && actualFile.size ? await parseActualFileWithReport(actualFile,{worksheet:actualWorksheet,mapping:actualMapping}) : undefined
     const estimateId = String(form.get('estimateId') || '')
     const savedEstimate = mode === 'actual' && estimateId ? await getEstimate(estimateId) : undefined
     if (mode === 'actual' && (!estimateId||!savedEstimate)) return NextResponse.json({ error: 'Estimate not found.' }, { status: 404 })
@@ -38,7 +42,7 @@ export async function POST(request: Request) {
     const importKind:ImportKind=mode==='estimate'?'new_estimate':mode==='pair'?'historical_job':'closeout_actual'
     const rawBaseline=String(form.get(mode==='pair'?'estimateBaselineRole':'baselineRole')|| (mode==='pair'?'historical_unknown':'original_bid'))
     if(!baselineRoles.has(rawBaseline as EstimateBaselineRole))return NextResponse.json({error:'Choose a valid estimate baseline type.'},{status:400})
-    const context:Record<string,string|null>=mode==='actual'?{estimateId}:mode==='estimate'?{parentEstimateId:String(form.get('parentEstimateId')||'')||null,baselineRole:rawBaseline}:{estimateBaselineRole:rawBaseline}
+    const context:Record<string,string|null>=mode==='actual'?{estimateId}:mode==='estimate'?{parentEstimateId:String(form.get('parentEstimateId')||'')||null,baselineRole:rawBaseline}:{estimateBaselineRole:rawBaseline,estimateBaselineConfirmed:'true'}
     const analysis:ImportReviewAnalysis={parserVersion:IMPORT_PARSER_VERSION,importKind,context,reports,issues,completeness:pair?.completeness}
     let review:{id:string;reportHash:string;expiresAt:string}|undefined
     if(canImport){
@@ -52,8 +56,10 @@ export async function POST(request: Request) {
       try{await createImportReviewRecord({id:reviewId,analysis,files:staged,expiresAt})}catch(error){await removeStagedImportFiles(auth.supabase,staged);throw error}
       review={id:reviewId,reportHash:hashImportAnalysis(analysis),expiresAt}
     }
+    const metadataSuggestions=mode==='pair'&&estimateFile instanceof File&&actualFile instanceof File?inferHistoricalImportMetadata({estimateFileName:estimateFile.name,actualFileName:actualFile.name}):undefined
     return NextResponse.json({
       reports, issues, completeness: pair?.completeness,review,
+      metadataSuggestions,
       requiresReview: issues.some(issue => issue.severity !== 'info'),
       requiresActualCompletenessConfirmation: pair?.completeness.state === 'complete',
       canImport,

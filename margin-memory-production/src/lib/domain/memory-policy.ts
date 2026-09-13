@@ -17,6 +17,20 @@ export function isJobEligibleForTrustedMemory(job: Pick<Job, 'scopeReview' | 'es
   return jobMemoryExclusionReasons(job).length===0
 }
 
+export function historicalEvidenceReadiness(job: Pick<Job, 'scopeReview' | 'estimateBaselineRole' | 'dataOrigin' | 'memoryStatus' | 'estimateLines' | 'actualLines'>) {
+  const reasons: string[] = []
+  if (job.scopeReview?.actualCompleteness !== 'confirmed_complete') reasons.push('Final actual-cost completeness has not been confirmed.')
+  if (job.scopeReview?.status !== 'no_changes' && job.scopeReview?.status !== 'adjusted') reasons.push('Estimate and actual scope have not been reconciled.')
+  if (job.estimateBaselineRole !== 'original_bid' && job.estimateBaselineRole !== 'final_submitted') reasons.push('The original or final submitted estimate baseline has not been confirmed.')
+  if (job.dataOrigin !== 'production') reasons.push('Sample data cannot be used as company evidence.')
+  if (job.memoryStatus !== 'trusted') reasons.push('This job is quarantined from historical evidence.')
+  const eligible = isJobEligibleForTrustedMemory(job)
+  const estimateHours = job.estimateLines.some(line => line.estimatedHours !== undefined)
+  const actualHours = job.actualLines.some(line => line.actualHours !== undefined)
+  const actualCostsReconciled = job.scopeReview?.actualCompleteness === 'confirmed_complete' && (job.scopeReview.status === 'no_changes' || job.scopeReview.status === 'adjusted')
+  return { eligible, reasons, estimateSourcePreserved: true, actualCostsReconciled, laborComparisonAvailable: eligible && estimateHours && actualHours }
+}
+
 export function isLessonEligibleForTrustedMemory(lesson: Pick<Lesson, 'status'>, job: Pick<Job, 'scopeReview' | 'estimateBaselineRole' | 'dataOrigin' | 'memoryStatus'> | undefined) {
   return lesson.status === 'confirmed' && Boolean(job && isJobEligibleForTrustedMemory(job))
 }

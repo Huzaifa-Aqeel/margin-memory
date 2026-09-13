@@ -130,6 +130,15 @@ describe('spreadsheet normalization',()=>{
   expect(report.issues).toContainEqual(expect.objectContaining({code:'ambiguous_mapping',severity:'error'}))
  })
 
+ it('resolves only an explicitly selected ambiguous semantic column and records its identity',async()=>{
+  const {lines,report}=await parseEstimateFileWithReport(csv('Description,Category,Amount,Cost,Hours\nWire,Materials,999,100,0'),{mapping:{cost:4}})
+  expect(report.issues).not.toContainEqual(expect.objectContaining({code:'ambiguous_mapping'}))
+  expect(report.mappedColumns.cost).toBe('cost')
+  expect(report.mappedColumnIndexes?.cost).toBe(4)
+  expect(lines[0]?.estimatedCost).toBe(100)
+  expect(report.mappingOptions?.cost).toEqual([{header:'amount',column:3},{header:'cost',column:4}])
+ })
+
  it('does not let generic review turn a missing actual category into zero',async()=>{
   const estimate=(await parseEstimateFileWithReport(csv('Description,Category,Cost,Hours\nLabor,Labor,500,10\nWire,Materials,500,0'))).report
   const actual=(await parseActualFileWithReport(csv('Description,Category,Cost,Hours\nLabor,Labor,500,10'))).report
@@ -145,6 +154,7 @@ describe('spreadsheet normalization',()=>{
   const pair=assessImportPair(estimate,actual)
   expect(()=>requireImportApproval(pair.issues,true)).toThrow('final and complete')
   expect(()=>requireImportApproval(pair.issues,true,{actualCompletenessConfirmed:true,allowIncompleteActuals:false})).not.toThrow()
+  expect(()=>requireImportApproval(pair.issues,false,{actualCompletenessConfirmed:true,allowIncompleteActuals:false})).not.toThrow()
  })
 
  it('distinguishes an explicit actual zero from an absent actual category',async()=>{
@@ -237,7 +247,7 @@ describe('spreadsheet normalization',()=>{
   const result=await parseEstimateFileWithReport(file,{worksheet:'Bid Detail'})
   expect(result.report.sheetName).toBe('Bid Detail')
   expect(result.lines[0]?.estimatedCost).toBe(100)
-  expect(result.provenance[0]).toMatchObject({lineId:result.lines[0]?.id,worksheet:'Bid Detail',sourceRow:2,parserVersion:'2026-09-p1-v1',mapping:{cost:'cost'},originalValues:{cost:'100'}})
+  expect(result.provenance[0]).toMatchObject({lineId:result.lines[0]?.id,worksheet:'Bid Detail',sourceRow:2,parserVersion:'2026-09-p1-v2',mapping:{cost:'cost'},originalValues:{cost:'100'}})
  })
 
  it('does not permit explicit hidden-sheet selection',async()=>{

@@ -1,13 +1,14 @@
 # Margin Memory — current continuation checkpoint
 
-Updated 2026-09-12. This is the authoritative handoff for the next Codex session. Read this file first, then [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), and [DEPLOYMENT.md](DEPLOYMENT.md). Do not reconstruct progress from old task history.
+Updated 2026-09-13. This is the authoritative handoff for the next Codex session. Read this file first, then [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), and [DEPLOYMENT.md](DEPLOYMENT.md). Do not reconstruct progress from old task history.
 
 ## Repository
 
 - Workspace Git root: `/home/huzaifa-aqeel/Downloads/margin-memory-production-closed-loop`
 - Application root: `margin-memory-production`
-- The user initialized Git at the workspace root. `main` currently includes the initial source commit and Integration Phase 1 commit; review the small working-tree follow-up before the next commit.
+- The user initialized Git at the workspace root. `main` includes the established integrity and integration work; the working tree contains the completed historical-onboarding hardening described below and should be reviewed before the next commit.
 - Workspace and application `.gitignore` files exclude dependencies, builds, environment secrets, Supabase temporary state, browser artifacts, editor state, and generated AgentCore files.
+- Next.js 16 regenerates `next-env.d.ts` with `.next/dev/types` during development and `.next/types` during production type generation. The file is now ignored and removed from Git tracking as recommended by current Next.js documentation. `predev` and `typecheck` remove only the conflicting generated type tree before Next regenerates the current one; this avoids Next.js 16.3.4's duplicate route declarations while retaining `skipLibCheck: false`.
 - `.env.local` contains the user's Supabase and AWS configuration. Never print credentials or commit this file.
 
 ## Current product state
@@ -60,6 +61,8 @@ Agent terminal-state and demo safety hardening is complete. A live isolated repr
 
 A read-only hosted check confirmed that all eight fixture jobs (including the seven originally reported plus Oak Street Restaurant) currently exist with `data_origin = 'demo'`. It also confirmed the exact sample estimate `Riverside Office – Level 3` remains with `investigation_status = 'failed'`, matching the old route's write-then-preflight sequence. Migration 021 uses the verified complete fixture fingerprint—not a name match—to backfill that one estimate as demo. After deployment, **Remove sample data** safely removes the old partial seed in full.
 
+Historical completed-job onboarding is now exception-driven without a new parser or schema. The form starts with the two source files and an explicit baseline confirmation, derives conservative editable descriptive metadata from filenames after a valid server analysis, collapses clean parser diagnostics, and shows only unresolved worksheet or semantic-column choices. Commit reparses with the server-owned worksheet and exact mapped column indexes. The completion state reports canonical historical-evidence eligibility rather than equating a successful commit with trusted history. See [HISTORICAL_ONBOARDING_HARDENING_2026-09-13.md](HISTORICAL_ONBOARDING_HARDENING_2026-09-13.md).
+
 ## Latest verification
 
 Final local verification on 2026-09-13:
@@ -69,16 +72,16 @@ Final local verification on 2026-09-13:
 | `npm run verify` | Passed |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed, no warnings |
-| `npm test` | 350 tests passed in 21 files |
-| `npm run test:db` | 125 tests passed; all 21 migrations applied from zero on PostgreSQL 18 + pgvector, including the pre-021 demo recovery upgrade path |
+| `npm test` | 372 tests passed in 24 files |
+| `npm run test:db` | 126 tests passed; all 21 migrations applied from zero on PostgreSQL 18 + pgvector, including import review/mapping parity and the pre-021 demo recovery upgrade path |
 | `npm run build` | Passed with Next.js 16.3.4 |
-| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome npm run test:browser` | 10 tests passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome npm run test:browser` | 19 tests passed |
 | `npm run smoke:bedrock` | Agent model passed; Titan embedding returned and validated 1536 dimensions |
 | Focused Excel/spreadsheet/review-contract suite | 112 tests passed |
 | `OFFICE_ADDIN_ORIGIN=https://margin.example.com npm run excel:manifest` | Passed; generated manifest passed Microsoft's `office-addin-manifest` schema/acceptance validator |
 | `git diff --check` | Passed |
 
-The focused agent outcome, demo route, and provenance suite passed 18 tests in 3 files.
+The focused metadata/spreadsheet/import-contract/memory-policy unit suite passed 105 tests in 4 files. The focused historical-onboarding/import-preview/scope browser suite passed 13 tests. The focused agent outcome, demo route, and provenance suite previously passed 18 tests in 3 files.
 
 The final commands ran successfully in the current environment. No check was disabled or weakened.
 
@@ -112,7 +115,7 @@ Standard AWS SDK profile/role resolution is used. Do not rerun paid Bedrock smok
 
 Repository implementation is ready for a controlled pilot, subject to these external checks:
 
-1. Review and commit the small migration-021 legacy-demo recovery follow-up in the working tree; `.env.local`, `node_modules`, `.next`, test artifacts, generated manifests, and Supabase temporary files are confirmed ignored.
+1. Review and commit the historical-onboarding hardening in the working tree; `.env.local`, `node_modules`, `.next`, test artifacts, generated manifests, and Supabase temporary files are confirmed ignored.
 2. Apply migrations 017–021 to hosted Supabase with the matching application deployment, then reconcile company memory to rebuild legacy vectors with current hashes. Migration 021 is required before using the new demo seed/reset route.
 3. Deploy the web application at a public HTTPS origin, add that origin and `/integrations/excel/auth-complete` to the allowed Supabase Auth URLs, generate the Office manifest with `OFFICE_ADDIN_ORIGIN`, and sideload/deploy it in Microsoft 365.
 4. Run the complete Excel-host journey with a real desktop/web Excel host: sign in, inspect/select source, review exceptions, run/retry a check, answer a persisted question, and reopen the task pane.

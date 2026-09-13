@@ -28,6 +28,9 @@ export type ResolvedImportMapping = {
   unitCost?: string
   unit?: string
 }
+export type ImportMappingField = keyof ResolvedImportMapping
+export type ImportMappingSelection = Partial<Record<ImportMappingField, number>>
+export type ImportMappingOption = { header: string; column: number }
 export type TotalReconciliation = {
   state: 'matched' | 'within_tolerance' | 'needs_review' | 'failed' | 'not_available'
   sourceReportedTotal: number | null
@@ -41,7 +44,7 @@ export type TotalReconciliation = {
   reviewTolerance: number
 }
 export type StructuredDimensionValues = { costCodes: string[]; phases: string[]; divisions: string[] }
-export const IMPORT_PARSER_VERSION = '2026-09-p1-v1'
+export const IMPORT_PARSER_VERSION = '2026-09-p1-v2'
 export const IMPORT_RESOURCE_LIMITS = {
   fileBytes: 25 * 1024 * 1024,
   expandedWorkbookBytes: 128 * 1024 * 1024,
@@ -53,7 +56,7 @@ export const IMPORT_RESOURCE_LIMITS = {
   cells: 2_000_000,
   cellCharacters: 100_000,
 } as const
-export type ImportParseOptions = { worksheet?: string }
+export type ImportParseOptions = { worksheet?: string; mapping?: ImportMappingSelection }
 export type NormalizedLineProvenance = {
   lineId: string
   worksheet: string
@@ -72,7 +75,9 @@ export type SpreadsheetImportReport = {
   headerRow: number
   headers: string[]
   mappedColumns: ResolvedImportMapping
+  mappedColumnIndexes?: ImportMappingSelection
   mappingCandidates: Partial<Record<keyof ResolvedImportMapping, string[]>>
+  mappingOptions?: Partial<Record<ImportMappingField, ImportMappingOption[]>>
   sourceRows: number
   importedRows: number
   skippedSummaryRows: number
@@ -108,6 +113,24 @@ export type ImportPairReport = {
   }
 }
 export class SpreadsheetInputError extends Error {}
+
+const importMappingFields = new Set<ImportMappingField>(['description', 'category', 'costCode', 'phase', 'division', 'cost', 'hours', 'quantity', 'unitCost', 'unit'])
+export function parseImportMappingSelection(input: unknown): ImportMappingSelection | undefined {
+  if (input === undefined || input === null || input === '') return undefined
+  let value: unknown = input
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value) } catch { throw new SpreadsheetInputError('Column selections are malformed. Preview the files again.') }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SpreadsheetInputError('Column selections are malformed. Preview the files again.')
+  const selection: ImportMappingSelection = {}
+  for (const [field, column] of Object.entries(value)) {
+    if (!importMappingFields.has(field as ImportMappingField) || !Number.isInteger(column) || Number(column) < 1 || Number(column) > IMPORT_RESOURCE_LIMITS.columns) {
+      throw new SpreadsheetInputError('Column selections contain an unsupported field or column. Preview the files again.')
+    }
+    selection[field as ImportMappingField] = Number(column)
+  }
+  return selection
+}
 
 /** Totals match at one cent. Rounding differences may pass up to the larger of
  * $1 or 0.01%, capped at $10. Differences up to 0.1%, capped at $100, require
@@ -313,16 +336,21 @@ function resolveColumn(headers: ColumnRef[], candidates: readonly RegExp[]) {
   for (const pattern of candidates) { selected = headers.find(column => pattern.test(column.header)); if (selected) break }
   return { selected, all }
 }
-function resolveMapping(headers: ColumnRef[], kind: 'estimate' | 'actual') {
+function resolveMapping(headers: ColumnRef[], kind: 'estimate' | 'actual', selections: ImportMappingSelection = {}) {
   const definitions: Record<keyof ResolvedImportMapping, readonly RegExp[]> = { description: patterns.description, category: patterns.category, costCode: patterns.costCode, phase: patterns.phase, division: patterns.division, cost: kind === 'estimate' ? patterns.estimateCost : patterns.actualCost, hours: kind === 'estimate' ? patterns.estimateHours : patterns.actualHours, quantity: patterns.quantity, unitCost: patterns.unitCost, unit: patterns.unit }
-  const mapping = {} as InternalMapping; const mappingCandidates: Partial<Record<keyof ResolvedImportMapping, string[]>> = {}; const ambiguous: Array<{ field: keyof ResolvedImportMapping; columns: ColumnRef[] }> = []
+  const mapping = {} as InternalMapping; const mappingCandidates: Partial<Record<keyof ResolvedImportMapping, string[]>> = {}; const mappingOptions: Partial<Record<ImportMappingField, ImportMappingOption[]>> = {}; const ambiguous: Array<{ field: keyof ResolvedImportMapping; columns: ColumnRef[] }> = []; const invalidSelections: ImportMappingField[] = []
   for (const field of Object.keys(definitions) as Array<keyof ResolvedImportMapping>) {
-    const resolved = resolveColumn(headers, definitions[field]); mapping[field] = resolved.selected
+    const resolved = resolveColumn(headers, definitions[field]); const requested = selections[field]
+    const explicitlySelected = requested === undefined ? undefined : resolved.all.find(column => column.index + 1 === requested)
+    if (requested !== undefined && !explicitlySelected) invalidSelections.push(field)
+    mapping[field] = requested === undefined ? resolved.selected : explicitlySelected
     if (resolved.all.length) mappingCandidates[field] = resolved.all.map(column => `${column.header} (column ${column.index + 1})`)
-    if (resolved.all.length > 1) ambiguous.push({ field, columns: resolved.all })
+    if (resolved.all.length) mappingOptions[field] = resolved.all.map(column => ({ header: column.header, column: column.index + 1 }))
+    if (resolved.all.length > 1 && requested === undefined) ambiguous.push({ field, columns: resolved.all })
   }
   const mappedColumns = Object.fromEntries(Object.entries(mapping).filter((entry): entry is [string, ColumnRef] => Boolean(entry[1])).map(([field, column]) => [field, column.header])) as ResolvedImportMapping
-  return { mapping, mappedColumns, mappingCandidates, ambiguous }
+  const mappedColumnIndexes = Object.fromEntries(Object.entries(mapping).filter((entry): entry is [string, ColumnRef] => Boolean(entry[1])).map(([field, column]) => [field, column.index + 1])) as ImportMappingSelection
+  return { mapping, mappedColumns, mappedColumnIndexes, mappingCandidates, mappingOptions, ambiguous, invalidSelections }
 }
 
 function cell(row: RawRow, column: ColumnRef | undefined) { return column ? row.values[column.index] : undefined }
@@ -383,9 +411,11 @@ async function analyzeSheets(sheets: RawSheet[], fileName: string, kind: 'estima
   if(kind==='actual'&&options.worksheet&&worksheet.analyzed.filter(candidate=>candidate.plausible&&!candidate.sheet.hidden).length>1&&worksheet.analyzed.filter(candidate=>candidate.plausible&&!candidate.sheet.hidden&&/actual|job.?cost|labor|material|equipment|phase|division/i.test(candidate.sheet.name)).length>1){worksheet.selected=undefined;issues.push({severity:'error',code:'multi_sheet_actuals_unsupported',message:'Actual costs appear split across multiple worksheets. Export one consolidated actual-cost worksheet before importing.'})}
   const selected = worksheet.selected; const rawHeader = selected?.header; const headerRow = rawHeader?.rowNumber ?? 0
   const headers = (rawHeader?.values ?? []).map((value, index) => ({ index, header: normalizeHeader(value) })).filter(column => column.header)
-  const resolved = resolveMapping(headers, kind)
+  const resolved = resolveMapping(headers, kind, options.mapping)
   for (const ambiguity of resolved.ambiguous) issues.push({ severity: 'error', code: 'ambiguous_mapping', message: `Multiple columns could supply ${ambiguity.field}: ${ambiguity.columns.map(column => `${column.header} (column ${column.index + 1})`).join(', ')}. Keep one authoritative source column.` })
-  const duplicateHeaders = headers.filter((column, index) => headers.findIndex(other => other.header === column.header) !== index && Object.values(resolved.mapping).some(mapped => mapped?.header === column.header))
+  for (const field of resolved.invalidSelections) issues.push({ severity: 'error', code: 'mapping_selection_invalid', message: `The selected source column for ${field} is not a recognized ${field} candidate in this worksheet.` })
+  const explicitlySelectedHeaders = new Set((Object.keys(options.mapping ?? {}) as ImportMappingField[]).flatMap(field => resolved.mapping[field]?.header ? [resolved.mapping[field]!.header] : []))
+  const duplicateHeaders = headers.filter((column, index) => headers.findIndex(other => other.header === column.header) !== index && Object.values(resolved.mapping).some(mapped => mapped?.header === column.header) && !explicitlySelectedHeaders.has(column.header))
   if (duplicateHeaders.length) issues.push({ severity: 'error', code: 'duplicate_headers', message: `Duplicate mapped headers are ambiguous: ${[...new Set(duplicateHeaders.map(column => column.header))].join(', ')}.` })
   if ((selected?.score ?? 0) < 2) issues.push({ severity: 'error', code: 'header_not_recognized', message: 'Could not confidently identify a header row. Include description/category plus cost or hours.' })
   if (!resolved.mapping.description && !resolved.mapping.category && !resolved.mapping.costCode && !resolved.mapping.phase && !resolved.mapping.division) issues.push({ severity: 'error', code: 'description_missing', message: 'No description, category, cost-code, division, class, or phase column was detected.' })
@@ -439,7 +469,7 @@ async function analyzeSheets(sheets: RawSheet[], fileName: string, kind: 'estima
   if (selected?.sheet.name === 'CSV' && rawHeader) { const width = rawHeader.values.length; const inconsistent = dataRows.filter(row => row.values.some(value => asText(value) !== '') && row.values.length !== width); if (inconsistent.length) issues.push({ severity: 'error', code: 'inconsistent_columns', message: `CSV rows ${inconsistent.map(row => row.rowNumber).join(', ')} do not have the same column count as the header.` }) }
   const dimensionValues = (field: 'costCode' | 'phase' | 'division') => [...new Set(lines.map(line => line[field]).filter((value): value is string => Boolean(value?.trim())).map(value => value.trim()))]
   const structuredDimensions: StructuredDimensionValues = { costCodes: dimensionValues('costCode'), phases: dimensionValues('phase'), divisions: dimensionValues('division') }
-  const report: SpreadsheetImportReport = { kind, fileName, sheetName: selected?.sheet.name ?? '', worksheets, worksheetSelectionRationale: worksheet.reason, headerRow, headers: headers.map(column => column.header), mappedColumns: resolved.mappedColumns, mappingCandidates: resolved.mappingCandidates, sourceRows: dataRows.length, importedRows: lines.length, skippedSummaryRows: excludedRows.filter(row => row.reason === 'summary').length, skippedEmptyRows: excludedRows.filter(row => row.reason === 'blank').length, excludedRows, malformedCells, invalidNumericCells: malformedCells.length, categoryCounts, categoryTotals, totalCost, totalHours, sourceReportedTotal: totals.reconciliation.sourceReportedTotal, normalizedDetailTotal: totalCost, totalReconciliation: totals.reconciliation, laborHourCoverage: resolved.mapping.hours ? 'present' : 'absent', structuredDimensions, issues }
+  const report: SpreadsheetImportReport = { kind, fileName, sheetName: selected?.sheet.name ?? '', worksheets, worksheetSelectionRationale: worksheet.reason, headerRow, headers: headers.map(column => column.header), mappedColumns: resolved.mappedColumns, mappedColumnIndexes: resolved.mappedColumnIndexes, mappingCandidates: resolved.mappingCandidates, mappingOptions: resolved.mappingOptions, sourceRows: dataRows.length, importedRows: lines.length, skippedSummaryRows: excludedRows.filter(row => row.reason === 'summary').length, skippedEmptyRows: excludedRows.filter(row => row.reason === 'blank').length, excludedRows, malformedCells, invalidNumericCells: malformedCells.length, categoryCounts, categoryTotals, totalCost, totalHours, sourceReportedTotal: totals.reconciliation.sourceReportedTotal, normalizedDetailTotal: totalCost, totalReconciliation: totals.reconciliation, laborHourCoverage: resolved.mapping.hours ? 'present' : 'absent', structuredDimensions, issues }
   return { lines: (selected ? lines : []) as EstimateLine[] | ActualLine[], report,provenance:selected?provenance:[] }
 }
 
@@ -502,5 +532,5 @@ export function requireImportApproval(issues: ImportIssue[], reviewed: boolean, 
   const incomplete = issues.filter(issue => issue.resolution === 'incomplete_actuals')
   if (incomplete.length && !resolution.allowIncompleteActuals) throw new SpreadsheetInputError(incomplete.map(issue => issue.message).join(' '))
   if (!resolution.allowIncompleteActuals && issues.some(issue => issue.resolution === 'actual_completeness') && !resolution.actualCompletenessConfirmed) throw new SpreadsheetInputError('Confirm that the actual-cost export is final and complete before importing it.')
-  if (issues.some(issue => issue.severity === 'warning') && !reviewed) throw new SpreadsheetInputError('Preview the spreadsheet and confirm the detected limitations before importing.')
+  if (issues.some(issue => issue.severity === 'warning' && issue.resolution !== 'actual_completeness') && !reviewed) throw new SpreadsheetInputError('Preview the spreadsheet and confirm the detected limitations before importing.')
 }

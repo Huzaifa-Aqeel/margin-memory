@@ -6,11 +6,12 @@
     "node": ">=22.12"
   },
   "scripts": {
+    "predev": "node scripts/prepare-next-types.mjs development",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node scripts/prepare-next-types.mjs production && next typegen && tsc --noEmit",
     "verify": "node scripts/verify-source.mjs",
     "test": "NODE_OPTIONS=--conditions=react-server vitest run",
     "test:db": "tsx scripts/test-database.ts",
