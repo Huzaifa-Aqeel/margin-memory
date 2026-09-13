@@ -2,8 +2,19 @@ import Link from 'next/link'
 import { FilePlus2 } from 'lucide-react'
 import { Badge } from '@/components/ui'
 import { money } from '@/lib/domain/analytics'
+import { presentMarginCheck } from '@/lib/domain/margin-check-presentation'
 import { readStore } from '@/lib/repository/store'
 import {isDemoOrigin} from '@/lib/domain/demo'
 
 export const dynamic='force-dynamic'
-export default async function PreflightPage(){const store=await readStore();return <div className="page"><div className="page-head"><div><div className="eyebrow">Estimate lifecycle</div><h1>From preflight to learned outcome</h1><p className="subtle">Preflight is only the first step. Every won job can close the loop with actuals and verified learning.</p></div><Link href="/estimates/new" className="btn primary"><FilePlus2 size={16}/>Review estimate</Link></div><div className="table-wrap"><table><thead><tr><th>Estimate</th><th>Origin</th><th>Amount</th><th>Labor</th><th>Findings</th><th>Agent</th><th>Lifecycle</th></tr></thead><tbody>{store.estimates.map((e)=><tr key={e.id}><td><Link href={`/estimates/${e.id}`}><strong>{e.name}</strong><div className="list-item-meta">{e.projectType} · {e.location}</div></Link></td><td>{isDemoOrigin(e)?<Badge tone="pending">Demo</Badge>:<Badge tone="confirmed">Production</Badge>}</td><td>{money(e.submittedAmount??e.estimatedTotal)}</td><td>{Math.round(e.estimatedLaborHours)}h</td><td>{e.findings.filter(x=>x.status==='open').length}</td><td><Badge tone={e.agentMode==='strands'?'confirmed':'neutral'}>{e.agentMode==='strands'?'Strands':e.agentMode==='deterministic'?'deterministic':'not run'}</Badge></td><td><div className="lifecycle-status-cell"><Badge tone={e.lifecycleStatus==='learned'?'confirmed':e.lifecycleStatus==='lost'?'neutral':'medium'}>{e.lifecycleStatus.replaceAll('_',' ')}</Badge>{e.lifecycleStatus==='learning_review'&&<span className="helper">{e.findingOutcomes.filter(o=>!o.confirmedVerdict).length} warning checks left</span>}</div></td></tr>)}</tbody></table></div></div>}
+export default async function PreflightPage(){
+ const store=await readStore()
+ return <div className="page">
+  <div className="page-head"><div><div className="eyebrow">Estimate review</div><h1>Estimates</h1><p className="subtle">Review current estimates before submission, then follow their outcomes into verified company lessons.</p></div><Link href="/estimates/new" className="btn primary"><FilePlus2 size={16}/>Review estimate</Link></div>
+  <div className="table-wrap"><table><thead><tr><th>Estimate</th><th>Origin</th><th>Amount</th><th>Labor</th><th>Findings</th><th>Margin Check</th><th>Lifecycle</th></tr></thead><tbody>{store.estimates.map((estimate)=>{
+   const openFindings=estimate.findings.filter(finding=>finding.status==='open').length
+   const review=presentMarginCheck({investigationStatus:estimate.investigationStatus,findingCount:estimate.findings.length,openFindingCount:openFindings,unansweredQuestionCount:estimate.questions.filter(question=>!question.resolvedAt).length})
+   return <tr key={estimate.id}><td><Link href={`/estimates/${estimate.id}`}><strong>{estimate.name}</strong><div className="list-item-meta">{estimate.projectType} · {estimate.location}</div></Link></td><td>{isDemoOrigin(estimate)?<Badge tone="pending">Demo</Badge>:<Badge tone="confirmed">Production</Badge>}</td><td>{money(estimate.submittedAmount??estimate.estimatedTotal)}</td><td>{Math.round(estimate.estimatedLaborHours)}h</td><td>{openFindings}</td><td><Badge tone={review.tone}>{review.label}</Badge></td><td><div className="lifecycle-status-cell"><Badge tone={estimate.lifecycleStatus==='learned'?'confirmed':estimate.lifecycleStatus==='lost'?'neutral':'medium'}>{estimate.lifecycleStatus.replaceAll('_',' ')}</Badge>{estimate.lifecycleStatus==='learning_review'&&<span className="helper">{estimate.findingOutcomes.filter(outcome=>!outcome.confirmedVerdict).length} warning checks left</span>}</div></td></tr>
+  })}</tbody></table></div>
+ </div>
+}

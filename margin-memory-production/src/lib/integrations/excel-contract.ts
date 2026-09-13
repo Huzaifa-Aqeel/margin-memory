@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Estimate, Finding, HumanQuestion } from '@/lib/domain/types'
+import { presentMarginCheck } from '@/lib/domain/margin-check-presentation'
 import type { ImportIssue, SpreadsheetImportReport } from '@/lib/spreadsheet'
 
 const optionalDate = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal(''), z.null()])
@@ -78,13 +79,13 @@ export function presentExcelEstimate(estimate: Estimate): ExcelEstimatePresentat
     action: finding.recommendation,
     evidence: finding.evidence,
   }))
-  const result: ExcelEstimatePresentation['result'] = estimate.investigationStatus === 'failed'
-    ? 'failed'
-    : questions.length || estimate.investigationStatus === 'needs_input'
-      ? 'needs_input'
-      : estimate.investigationStatus === 'completed'
-        ? findings.length ? 'findings' : 'no_findings'
-        : 'running'
+  const review = presentMarginCheck({
+    investigationStatus: estimate.investigationStatus,
+    findingCount: estimate.findings.length,
+    openFindingCount: estimate.findings.filter(finding => finding.status === 'open').length,
+    unansweredQuestionCount: questions.length,
+  })
+  const result: ExcelEstimatePresentation['result'] = review.state === 'queued' || review.state === 'investigating' ? 'running' : review.state
   return {
     estimateId: estimate.id,
     revisionNumber: estimate.revisionNumber ?? 0,

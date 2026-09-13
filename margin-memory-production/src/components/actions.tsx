@@ -19,10 +19,10 @@ export function AnswerQuestion({ estimateId, questionId, options }: { estimateId
   return <>{error&&<div className="error">{error}</div>}<div className="question-options">{options.map((option)=><button key={option} disabled={busy} className="btn" onClick={()=>answer(option)}>{busy?'Updating…':option}</button>)}</div></>
 }
 
-export function RerunReview({ estimateId }: { estimateId:string }) {
+export function RerunReview({ estimateId, label='Run Margin Check again' }: { estimateId:string; label?:string }) {
   const router=useRouter(); const [busy,setBusy]=useState(false); const [error,setError]=useState('')
   async function run(){await performMutation(()=>postJson(`/api/estimates/${estimateId}/review`),{busy:setBusy,error:setError},()=>router.refresh())}
-  return <div>{error&&<div className="error" style={{marginBottom:8}}>{error}</div>}<button className="btn" disabled={busy} onClick={run}><RefreshCw size={15} className={busy?'spin':''}/>{busy?'Investigating…':'Run preflight again'}</button></div>
+  return <div>{error&&<div className="error" style={{marginBottom:8}}>{error}</div>}<button className="btn" disabled={busy} onClick={run}><RefreshCw size={15} className={busy?'spin':''}/>{busy?'Running Margin Check…':label}</button></div>
 }
 
 export function LessonActions({ lessonId }: { lessonId:string }) {

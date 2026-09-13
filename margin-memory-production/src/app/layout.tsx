@@ -5,7 +5,7 @@ import { AppShell } from '@/components/app-shell'
 
 export const metadata: Metadata = {
   title: 'Margin Memory',
-  description: 'An evidence-first estimating agent for small electrical contractors.',
+  description: 'Evidence-backed estimate review for small electrical contractors.',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

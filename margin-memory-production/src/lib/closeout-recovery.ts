@@ -9,7 +9,7 @@ export async function resumeCloseout(estimateId:string){
  // All retry inputs come from committed company records. A repeated upload cannot
  // replace the original actuals or accidentally index another request's values.
  if(embeddingsEnabled()){
-  try{await repairMemory(estimate.linkedJobId)}catch(error){console.error('Closeout memory recovery failed',error);warnings.push('Actuals are saved. Company memory still needs attention; retry from the closeout or Memory page.')}
+  try{await repairMemory(estimate.linkedJobId)}catch(error){console.error('Closeout memory recovery failed',error);warnings.push('Actuals are saved. Some historical evidence is still being prepared and will be retried safely.')}
  }
  const finalized=await tryFinalizeEstimateLearning(estimateId)
  const readiness=await getMemoryReadiness(estimate.linkedJobId)

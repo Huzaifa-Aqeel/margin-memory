@@ -32,7 +32,7 @@ export function ScopeReviewFields() {
     </select>
     <input type="hidden" name="scopeReview" value={JSON.stringify({ status: status || 'unreconciled', changes })}/>
     <p className="helper">The original estimate and final actuals stay intact. Record cost allowances, not the price charged to the customer. This assessment is saved with the import and cannot be edited afterward.</p>
-    {status === 'unreconciled' && <p className="warning-banner">This job will remain in history, excluded from automated lessons and future preflight comparisons. Rebuilding search will not reconcile its scope.</p>}
+    {status === 'unreconciled' && <p className="warning-banner">This job will remain in history but will not be used for lessons or future comparisons unless its scope can be reconciled.</p>}
     {status === 'adjusted' && <>
       <p className="helper">One row per approved change and cost category. Use a negative budget change for removed work. Allocate only costs and hours included in the final actuals file; enter 0 where none apply. If you cannot reconcile all changes, choose “Not sure”.</p>
       {entries.map((entry, index) => <fieldset key={entry.key} className="card" style={{ marginBottom: 12 }}>
