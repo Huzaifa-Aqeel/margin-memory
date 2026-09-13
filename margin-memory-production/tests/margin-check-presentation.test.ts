@@ -47,4 +47,8 @@ describe('warning effectiveness restraint', () => {
   it('shows an observed percentage once ten reviewed outcomes exist', () => {
     expect(presentWarningEffectiveness({ evaluable: 10, hitRate: 0.6 })).toMatchObject({ ready: true, value: '60%' })
   })
+
+  it('does not imply a pattern when reviewed outcomes have no evaluable rate', () => {
+    expect(presentWarningEffectiveness({ evaluable: 10, hitRate: null })).toMatchObject({ ready: false, value: '10 reviewed', note: 'No evaluable warning pattern is available yet' })
+  })
 })

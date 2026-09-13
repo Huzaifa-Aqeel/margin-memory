@@ -89,8 +89,11 @@ export function presentMarginCheck(input: {
 export const MIN_WARNING_EFFECTIVENESS_SAMPLE = 10
 
 export function presentWarningEffectiveness(input: { evaluable: number; hitRate: number | null }) {
-  const ready = input.evaluable >= MIN_WARNING_EFFECTIVENESS_SAMPLE && input.hitRate !== null
-  return ready
-    ? { ready, value: `${Math.round(input.hitRate! * 100)}%`, note: `${input.evaluable} reviewed outcomes · observed result, not calibrated accuracy` }
-    : { ready, value: `${input.evaluable} reviewed`, note: `Not enough reviewed outcomes to show a pattern · ${MIN_WARNING_EFFECTIVENESS_SAMPLE} required` }
+  if (input.evaluable < MIN_WARNING_EFFECTIVENESS_SAMPLE) {
+    return { ready: false, value: `${input.evaluable} reviewed`, note: `Not enough reviewed outcomes to show a pattern · ${MIN_WARNING_EFFECTIVENESS_SAMPLE} required` }
+  }
+  if (input.hitRate === null) {
+    return { ready: false, value: `${input.evaluable} reviewed`, note: 'No evaluable warning pattern is available yet' }
+  }
+  return { ready: true, value: `${Math.round(input.hitRate * 100)}%`, note: `${input.evaluable} reviewed outcomes · observed result, not calibrated accuracy` }
 }

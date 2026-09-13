@@ -80,7 +80,13 @@ describe('Excel live-source identity and review binding',()=>{
 })
 
 describe('Excel result presentation',()=>{
- const estimate=(findings:Estimate['findings']=[],questions:Estimate['questions']=[]):Estimate=>({id:crypto.randomUUID(),name:'Bid',projectType:'Office',customerType:'Commercial',location:'',tags:[],assumptions:[],lines:[],estimatedTotal:0,estimatedLaborHours:0,createdAt:new Date().toISOString(),status:questions.length?'needs_input':'ready',investigationStatus:questions.length?'needs_input':'completed',lifecycleStatus:'draft',findings,submittedFindingIds:[],findingOutcomes:[],questions:questions})
+ const estimate=(findings:Estimate['findings']=[],questions:Estimate['questions']=[],investigationStatus:Estimate['investigationStatus']=questions.length?'needs_input':'completed'):Estimate=>({id:crypto.randomUUID(),name:'Bid',projectType:'Office',customerType:'Commercial',location:'',tags:[],assumptions:[],lines:[],estimatedTotal:0,estimatedLaborHours:0,createdAt:new Date().toISOString(),status:questions.length?'needs_input':'ready',investigationStatus,lifecycleStatus:'draft',findings,submittedFindingIds:[],findingOutcomes:[],questions:questions})
  it('treats a completed zero-finding review as a successful result',()=>expect(presentExcelEstimate(estimate()).result).toBe('no_findings'))
+ it('does not turn queued, running, failed, or waiting states into a zero-finding result',()=>{
+  expect(presentExcelEstimate(estimate([],[],'queued')).result).toBe('running')
+  expect(presentExcelEstimate(estimate([],[],'investigating')).result).toBe('running')
+  expect(presentExcelEstimate(estimate([],[],'failed')).result).toBe('failed')
+  expect(presentExcelEstimate(estimate([], [{id:'question',estimateId:'estimate',prompt:'Occupied?',context:'Access',options:['Yes','No']}],'needs_input')).result).toBe('needs_input')
+ })
  it('shows no more than three persisted findings',()=>{const finding=(index:number):Estimate['findings'][number]=>({id:String(index),estimateId:'estimate',category:'labor',severity:'medium',title:`Finding ${index}`,claim:'Fact',rationale:'Interpretation',recommendation:'Action',evidence:[],confidence:.6,status:'open',createdAt:new Date().toISOString()});expect(presentExcelEstimate(estimate([0,1,2,3].map(finding))).findings).toHaveLength(3)})
 })
