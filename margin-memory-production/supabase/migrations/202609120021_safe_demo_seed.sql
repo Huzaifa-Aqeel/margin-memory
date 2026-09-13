@@ -6,6 +6,27 @@ alter table public.estimates
   add column data_origin text not null default 'production'
     check(data_origin in('production','demo','synthetic_test'));
 
+-- The pre-021 route marked jobs but had no estimate-origin column. Backfill
+-- only the exact bundled fixture when all eight demo jobs, all four financial
+-- lines, actor, timing, and failed-preflight state agree. Names alone never
+-- classify or delete an estimate.
+update public.estimates e set data_origin='demo'
+where e.data_origin='production'
+  and e.name='Riverside Office – Level 3' and e.project_type='Office retrofit'
+  and e.customer_type='Commercial' and e.location='Philadelphia, PA' and e.bid_due='2026-09-11'
+  and e.tags=array['occupied','retrofit','conduit-reuse']::text[]
+  and e.assumptions=array['Existing conduit can be reused where accessible','Normal daytime access to work areas','Lighting quote reflects current schedule']::text[]
+  and e.estimated_total=35150 and e.estimated_labor_hours=118 and e.lifecycle_status='draft'
+  and e.investigation_status='failed' and e.agent_mode is null
+  and not exists(select 1 from public.documents d where d.organization_id=e.organization_id and d.estimate_id=e.id)
+  and not exists(select 1 from public.import_line_provenance p join public.estimate_lines l on l.organization_id=p.organization_id and l.id=p.estimate_line_id where l.organization_id=e.organization_id and l.estimate_id=e.id)
+  and (select count(*) from public.estimate_lines l where l.organization_id=e.organization_id and l.estimate_id=e.id)=4
+  and exists(select 1 from public.estimate_lines l where l.organization_id=e.organization_id and l.estimate_id=e.id and l.category='labor' and l.description='Level 3 electrical retrofit labor' and l.estimated_cost=8850 and l.estimated_hours=118)
+  and exists(select 1 from public.estimate_lines l where l.organization_id=e.organization_id and l.estimate_id=e.id and l.category='materials' and l.description='Wire, devices and lighting' and l.estimated_cost=24400)
+  and exists(select 1 from public.estimate_lines l where l.organization_id=e.organization_id and l.estimate_id=e.id and l.category='equipment' and l.description='Access equipment allowance' and l.estimated_cost=900)
+  and exists(select 1 from public.estimate_lines l where l.organization_id=e.organization_id and l.estimate_id=e.id and l.category='permit' and l.description='Permit allowance' and l.estimated_cost=1000)
+  and (select count(distinct j.name) from public.jobs j where j.organization_id=e.organization_id and j.created_by=e.created_by and j.data_origin='demo' and j.created_at between e.created_at-interval '10 minutes' and e.created_at and j.name=any(array['Baker Office Renovation','Delta Dental TI','Ford Street Retail Refresh','Maple Apartments Common Areas','Union Bank Branch','Harbor Medical Suite','Ridge Warehouse Lighting','Oak Street Restaurant']::text[]))=8;
+
 create function public.guard_estimate_data_origin() returns trigger
 language plpgsql set search_path='' as $$
 begin

@@ -58,25 +58,27 @@ Integration Phase 1 is implemented. A thin Office.js Excel task pane captures on
 
 Agent terminal-state and demo safety hardening is complete. A live isolated reproduction established that Strands 1.17.0 returned `stopReason: limitTurns` with no `structuredOutput`; the old runtime ignored the stop reason and passed the optional field to Zod. The runtime now distinguishes validated completion, a validated `request_human_input` interrupt, and explicit failure. Migration 021 atomically and idempotently creates demo core data, leases/retries its external preflight, records durable failure, propagates demo origin through revisions/closeout, and exposes a demo-only tenant-safe reset. Demo and production origins are shown separately from legacy/closed-loop source labels. See [AGENT_RUNTIME_AND_DEMO_SAFETY.md](AGENT_RUNTIME_AND_DEMO_SAFETY.md).
 
-A read-only hosted check confirmed that all eight fixture jobs (including the seven originally reported plus Oak Street Restaurant) currently exist with `data_origin = 'demo'`. It also confirmed the exact sample estimate `Riverside Office – Level 3` remains with `investigation_status = 'failed'`, matching the old route's write-then-preflight sequence. After migration 021 deploys, **Remove sample data** safely removes the eight origin-marked jobs. The older estimate predates estimate-origin tracking and must be inspected/deleted manually if desired; the reset deliberately does not infer production deletion from a name.
+A read-only hosted check confirmed that all eight fixture jobs (including the seven originally reported plus Oak Street Restaurant) currently exist with `data_origin = 'demo'`. It also confirmed the exact sample estimate `Riverside Office – Level 3` remains with `investigation_status = 'failed'`, matching the old route's write-then-preflight sequence. Migration 021 uses the verified complete fixture fingerprint—not a name match—to backfill that one estimate as demo. After deployment, **Remove sample data** safely removes the old partial seed in full.
 
 ## Latest verification
 
-Final local verification on 2026-09-12:
+Final local verification on 2026-09-13:
 
 | Command | Result |
 | --- | --- |
 | `npm run verify` | Passed |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed, no warnings |
-| `npm test` | 348 tests passed in 21 files |
-| `npm run test:db` | 123 tests passed; all 21 migrations applied from zero on PostgreSQL 18 + pgvector |
+| `npm test` | 350 tests passed in 21 files |
+| `npm run test:db` | 125 tests passed; all 21 migrations applied from zero on PostgreSQL 18 + pgvector, including the pre-021 demo recovery upgrade path |
 | `npm run build` | Passed with Next.js 16.3.4 |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome npm run test:browser` | 10 tests passed |
 | `npm run smoke:bedrock` | Agent model passed; Titan embedding returned and validated 1536 dimensions |
 | Focused Excel/spreadsheet/review-contract suite | 112 tests passed |
 | `OFFICE_ADDIN_ORIGIN=https://margin.example.com npm run excel:manifest` | Passed; generated manifest passed Microsoft's `office-addin-manifest` schema/acceptance validator |
 | `git diff --check` | Passed |
+
+The focused agent outcome, demo route, and provenance suite passed 18 tests in 3 files.
 
 The final commands ran successfully in the current environment. No check was disabled or weakened.
 
@@ -110,7 +112,7 @@ Standard AWS SDK profile/role resolution is used. Do not rerun paid Bedrock smok
 
 Repository implementation is ready for a controlled pilot, subject to these external checks:
 
-1. Review and commit the small Integration Phase 1 follow-up in the working tree; `.env.local`, `node_modules`, `.next`, test artifacts, generated manifests, and Supabase temporary files are confirmed ignored.
+1. Review and commit the small migration-021 legacy-demo recovery follow-up in the working tree; `.env.local`, `node_modules`, `.next`, test artifacts, generated manifests, and Supabase temporary files are confirmed ignored.
 2. Apply migrations 017–021 to hosted Supabase with the matching application deployment, then reconcile company memory to rebuild legacy vectors with current hashes. Migration 021 is required before using the new demo seed/reset route.
 3. Deploy the web application at a public HTTPS origin, add that origin and `/integrations/excel/auth-complete` to the allowed Supabase Auth URLs, generate the Office manifest with `OFFICE_ADDIN_ORIGIN`, and sideload/deploy it in Microsoft 365.
 4. Run the complete Excel-host journey with a real desktop/web Excel host: sign in, inspect/select source, review exceptions, run/retry a check, answer a persisted question, and reopen the task pane.
@@ -130,7 +132,7 @@ Repository implementation is ready for a controlled pilot, subject to these exte
 - ZIP/resource checks are bounded defenses, not proof against every parser CPU attack.
 - Scope approval references and mitigation assessments are human attestations, not automated proof of customer approval or causal savings.
 - Demo seed data is permanently marked `demo` and excluded from trusted retrieval, evidence, calculations, lessons, and warning calibration.
-- Demo jobs created by the pre-021 route can be removed by the safe sample reset after migration 021. A pre-021 sample estimate has no durable estimate-origin marker and must be inspected manually; cleanup never guesses from its name.
+- Migration 021 backfills the exact pre-021 bundled sample estimate only when its full fixture fingerprint matches; cleanup never infers demo origin from a name alone.
 - Real contractor retrieval relevance and Titan semantic quality have not yet been validated with permissioned pilot records.
 - The PostgreSQL harness does not emulate hosted Auth, PostgREST, Storage HTTP behavior, email delivery, or session refresh.
 - Office manifest validation passes, but actual Excel desktop/web host behavior has not been exercised in this environment.
