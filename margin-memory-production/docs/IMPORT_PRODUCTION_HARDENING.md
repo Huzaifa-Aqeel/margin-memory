@@ -48,6 +48,10 @@ Limits are enforced before or during normalization:
 
 XLSX ZIP metadata is checked before ExcelJS loads the workbook. Encrypted and ZIP64 workbooks block. These controls bound common decompression and memory attacks; they do not prove that every malformed ZIP/parser CPU attack is impossible. Server request timeouts remain an additional operational boundary.
 
+The archive must also contain the standard Open Packaging Convention content-types, package relationships, workbook, workbook relationships, and worksheet parts. If those parts are absent, or if ExcelJS cannot interpret the workbook XML, preview fails closed with an actionable re-save/export message. Parser exceptions such as internal worksheet-property errors are not returned to the estimator. Margin Memory does not repair or guess at damaged or exporter-specific workbook structures; opening the file in Excel or LibreOffice and saving a new `.xlsx` copy (or exporting a UTF-8 CSV) is the supported recovery path.
+
+The XLSX regression corpus is generated programmatically and includes malformed package/workbook XML cases. It does not contain a permissioned real contractor export, so compatibility with real customer records remains unproven and must follow [CUSTOMER_IMPORT_VALIDATION_TASKS.md](CUSTOMER_IMPORT_VALIDATION_TASKS.md).
+
 Only visible, plausible worksheets are automatic candidates. Multiple estimate candidates require an explicit worksheet selection and a new server analysis. Hidden sheets cannot be selected. Actuals that appear split across multiple job-cost worksheets require a consolidated export; Margin Memory does not silently merge them.
 
 ## Historical onboarding presentation

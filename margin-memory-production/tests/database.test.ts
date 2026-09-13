@@ -1,6 +1,7 @@
 import {beforeAll,afterAll,it,expect,vi} from 'vitest'
 import pg from 'pg'
 import ExcelJS from 'exceljs'
+import JSZip from 'jszip'
 import {createHash} from 'node:crypto'
 import {startDatabase} from './database/harness'
 import type {Estimate,Job,Lesson} from '../src/lib/domain/types'
@@ -384,6 +385,14 @@ it('rejects forged authoritative history with net-zero or structured actual cove
  const archived=await create(structuredEstimate,structuredActual,{status:'unreconciled',changes:[],actualCompleteness:'confirmed_complete'})
  expect((await database.db.query('select review from public.job_scope_reviews where job_id=$1',[archived])).rows[0].review.actualCompleteness).toBe('unknown')
  expect((await database.db.query('select public.is_job_scope_reconciled($1,$2) usable',[orgA,archived])).rows[0].usable).toBe(false)
+})
+it('returns an actionable preview error for unsupported XLSX workbook XML without staging an import',async()=>{
+ const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Estimate');sheet.addRow(['Description','Cost']);sheet.addRow(['Wire',100])
+ const archive=await JSZip.loadAsync(await book.xlsx.writeBuffer());archive.file('xl/workbook.xml','<?xml version="1.0" encoding="UTF-8"?><unsupported-workbook/>')
+ const bytes=await archive.generateAsync({type:'uint8array'});const reviewsBefore=importRouteHooks.reviews.size
+ const form=new FormData();form.set('mode','pair');form.set('estimateBaselineConfirmed','true');form.set('estimateFile',new File([new Uint8Array(bytes)],'unsupported-export.xlsx'));form.set('actualFile',new File(['Description,Cost\nWire,100'],'actual.csv'))
+ const response=await previewImport(new Request('http://localhost/api/import/preview',{method:'POST',body:form}));const body=await response.json()
+ expect(response.status).toBe(400);expect(body.error).toContain('could not be read safely as a standard XLSX file');expect(body.error).not.toContain("reading 'sheets'");expect(importRouteHooks.reviews.size).toBe(reviewsBefore)
 })
 it('uses the reviewed API preview interpretation for committed database values',async()=>{
  const estimateCsv='Description,Category,Cost Code,Phase,Quantity,UOM,Unit Cost,Estimated Cost,Hours\nCrew labor,Labor,260100,ROUGH,10,HR,125,"$1,250.00",10\nWire,Materials,260200,TRIM,100,LF,7.5,750,0\nGrand Total,,,,,,,2000,\n'

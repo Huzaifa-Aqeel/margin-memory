@@ -1,5 +1,6 @@
 import { describe,it,expect } from 'vitest'
 import ExcelJS from 'exceljs'
+import JSZip from 'jszip'
 import { assessImportPair, IMPORT_RESOURCE_LIMITS, parseActualFile,parseActualFileWithReport,parseEstimateFile,parseEstimateFileWithReport,requireImportApproval } from '../src/lib/spreadsheet'
 const csv=(value:string)=>new File([value],'cost.csv',{type:'text/csv'})
 describe('spreadsheet normalization',()=>{
@@ -12,6 +13,22 @@ describe('spreadsheet normalization',()=>{
  it('handles XLSX cached formulas, rich text, and quantity rates',async()=>{
   const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Costs');sheet.addRow(['Electrical contractor']);sheet.addRow(['Description','Quantity','Unit Cost','Estimated Cost']);sheet.addRow([{richText:[{text:'Wire'}]},2,50,{formula:'B3*C3',result:100}]);sheet.addRow(['Conduit',3,20]);sheet.addRow(['Total',null,null,{formula:'SUM(D3:D4)',result:160}]);
   const rows=await parseEstimateFile(new File([new Uint8Array(await book.xlsx.writeBuffer())],'cost.xlsx'));expect(rows.map(r=>r.estimatedCost)).toEqual([100,60])
+ })
+ it('fails closed with an actionable error when workbook XML cannot be interpreted',async()=>{
+  const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Estimate');sheet.addRow(['Description','Cost']);sheet.addRow(['Wire',100])
+  const archive=await JSZip.loadAsync(await book.xlsx.writeBuffer())
+  archive.file('xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><unsupported-workbook/>')
+  const bytes=await archive.generateAsync({type:'uint8array'})
+  for(const parseFile of [parseEstimateFileWithReport,parseActualFileWithReport]){
+   const parse=parseFile(new File([new Uint8Array(bytes)],'unsupported-export.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}))
+   await expect(parse).rejects.toThrow('could not be read safely as a standard XLSX file')
+   await expect(parse).rejects.not.toThrow("Cannot read properties of undefined (reading 'sheets')")
+  }
+ })
+ it('rejects ZIP files missing the required XLSX package structure',async()=>{
+  const archive=new JSZip();archive.file('xl/workbook.xml','<workbook/>');archive.file('xl/worksheets/sheet1.xml','<worksheet/>')
+  const bytes=await archive.generateAsync({type:'uint8array'})
+  await expect(parseEstimateFileWithReport(new File([new Uint8Array(bytes)],'renamed-zip.xlsx'))).rejects.toThrow('could not be read safely as a standard XLSX file')
  })
  it('reports detected headers, totals, skipped rollups and category coverage',async()=>{
   const {lines,report}=await parseEstimateFileWithReport(csv('Report title\nCost Type,Item Description,Budget Amount,Budgeted MH\nL,Branch rough-in,1000,12\nMAT,Wire and devices,500,0\nGrand Total,,1500,12'))

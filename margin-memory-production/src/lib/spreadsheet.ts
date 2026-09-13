@@ -112,7 +112,14 @@ export type ImportPairReport = {
     requiresExplicitConfirmation: true
   }
 }
-export class SpreadsheetInputError extends Error {}
+export class SpreadsheetInputError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'SpreadsheetInputError'
+  }
+}
+
+const UNREADABLE_XLSX_MESSAGE = 'This workbook could not be read safely as a standard XLSX file. It may be damaged or use an unsupported exporter structure. Open it in Excel or LibreOffice, save a new .xlsx copy, and try again.'
 
 const importMappingFields = new Set<ImportMappingField>(['description', 'category', 'costCode', 'phase', 'division', 'cost', 'hours', 'quantity', 'unitCost', 'unit'])
 export function parseImportMappingSelection(input: unknown): ImportMappingSelection | undefined {
@@ -255,15 +262,24 @@ function validateXlsxArchive(bytes: Uint8Array) {
   const centralOffset = view.getUint32(eocd + 16, true)
   if (entries > IMPORT_RESOURCE_LIMITS.zipEntries) throw new SpreadsheetInputError('This workbook contains too many ZIP entries to analyze safely.')
   let offset = centralOffset; let expanded = 0; let compressed = 0
+  const entriesByName = new Set<string>()
   for (let index = 0; index < entries; index += 1) {
     if (offset + 46 > bytes.length || view.getUint32(offset, true) !== 0x02014b50) throw new SpreadsheetInputError('The XLSX ZIP directory is malformed.')
     const flags = view.getUint16(offset + 8, true)
     const packed = view.getUint32(offset + 20, true); const unpacked = view.getUint32(offset + 24, true)
+    const nameLength = view.getUint16(offset + 28, true); const extraLength = view.getUint16(offset + 30, true); const commentLength = view.getUint16(offset + 32, true)
+    if (offset + 46 + nameLength + extraLength + commentLength > bytes.length) throw new SpreadsheetInputError('The XLSX ZIP directory is malformed.')
+    const entryName = new TextDecoder('utf-8').decode(bytes.subarray(offset + 46, offset + 46 + nameLength)).replaceAll('\\', '/')
+    entriesByName.add(entryName)
     if ((flags & 1) !== 0) throw new SpreadsheetInputError('Encrypted XLSX workbooks are not supported.')
     if (packed === 0xffffffff || unpacked === 0xffffffff) throw new SpreadsheetInputError('ZIP64 XLSX workbooks are not supported.')
     compressed += packed; expanded += unpacked
     if (expanded > IMPORT_RESOURCE_LIMITS.expandedWorkbookBytes || (compressed > 0 && expanded / compressed > IMPORT_RESOURCE_LIMITS.zipCompressionRatio)) throw new SpreadsheetInputError('This workbook expands beyond the safe analysis limit. Reduce it to the required worksheets and try again.')
-    offset += 46 + view.getUint16(offset + 28, true) + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true)
+    offset += 46 + nameLength + extraLength + commentLength
+  }
+  const requiredEntries = ['[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels']
+  if (requiredEntries.some(name => !entriesByName.has(name)) || ![...entriesByName].some(name => /^xl\/worksheets\/[^/]+\.xml$/i.test(name))) {
+    throw new SpreadsheetInputError(UNREADABLE_XLSX_MESSAGE)
   }
 }
 
@@ -294,8 +310,13 @@ async function rawSheetsFromFile(file: File): Promise<RawSheet[]> {
   if (extension !== 'xlsx') throw new SpreadsheetInputError('Use .xlsx or .csv for estimate and actual-cost files.')
   if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new SpreadsheetInputError('The file contents are not a valid XLSX workbook.')
   validateXlsxArchive(bytes)
-  const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(rawBuffer)
-  if (!workbook.worksheets.length) throw new Error('The spreadsheet does not contain a worksheet.')
+  const workbook = new ExcelJS.Workbook()
+  try {
+    await workbook.xlsx.load(rawBuffer)
+  } catch (error) {
+    throw new SpreadsheetInputError(UNREADABLE_XLSX_MESSAGE, { cause: error })
+  }
+  if (!workbook.worksheets.length) throw new SpreadsheetInputError('The spreadsheet does not contain a readable worksheet.')
   if (workbook.worksheets.length > IMPORT_RESOURCE_LIMITS.worksheets) throw new SpreadsheetInputError(`Workbooks may contain at most ${IMPORT_RESOURCE_LIMITS.worksheets} worksheets.`)
   let cells = 0
   return workbook.worksheets.map(sheet => {

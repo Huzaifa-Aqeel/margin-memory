@@ -63,6 +63,8 @@ A read-only hosted check confirmed that all eight fixture jobs (including the se
 
 Historical completed-job onboarding is now exception-driven without a new parser or schema. The form starts with the two source files and an explicit baseline confirmation, derives conservative editable descriptive metadata from filenames after a valid server analysis, collapses clean parser diagnostics, and shows only unresolved worksheet or semantic-column choices. Commit reparses with the server-owned worksheet and exact mapped column indexes. The completion state reports canonical historical-evidence eligibility rather than equating a successful commit with trusted history. See [HISTORICAL_ONBOARDING_HARDENING_2026-09-13.md](HISTORICAL_ONBOARDING_HARDENING_2026-09-13.md).
 
+The real-upload XLSX parser boundary is now hardened. An adversarial XLSX reproduces ExcelJS 4.4.0 returning an undefined workbook model and then throwing `Cannot read properties of undefined (reading 'sheets')`. Both estimate and actual parsing now verify required Open Packaging Convention parts before ExcelJS and convert unsupported/damaged workbook XML failures into a fail-closed, actionable re-save/export message. The raw library exception is no longer returned by `/api/import/preview`. This proves safe failure behavior, not compatibility with the user's specific workbook; that file has not been supplied to the repository.
+
 ## Latest verification
 
 Final local verification on 2026-09-13:
@@ -72,12 +74,12 @@ Final local verification on 2026-09-13:
 | `npm run verify` | Passed |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed, no warnings |
-| `npm test` | 372 tests passed in 24 files |
-| `npm run test:db` | 126 tests passed; all 21 migrations applied from zero on PostgreSQL 18 + pgvector, including import review/mapping parity and the pre-021 demo recovery upgrade path |
+| `npm test` | 374 tests passed in 24 files |
+| `npm run test:db` | 127 tests passed; all 21 migrations applied from zero on PostgreSQL 18 + pgvector, including the real preview-route XLSX failure boundary, import review/mapping parity, and the pre-021 demo recovery upgrade path |
 | `npm run build` | Passed with Next.js 16.3.4 |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome npm run test:browser` | 19 tests passed |
 | `npm run smoke:bedrock` | Agent model passed; Titan embedding returned and validated 1536 dimensions |
-| Focused Excel/spreadsheet/review-contract suite | 112 tests passed |
+| Focused spreadsheet/review-contract suite | 97 tests passed, including malformed XLSX package and workbook-XML regressions |
 | `OFFICE_ADDIN_ORIGIN=https://margin.example.com npm run excel:manifest` | Passed; generated manifest passed Microsoft's `office-addin-manifest` schema/acceptance validator |
 | `git diff --check` | Passed |
 
@@ -131,6 +133,7 @@ Repository implementation is ready for a controlled pilot, subject to these exte
 - CSV is UTF-8 only; Windows-1252 and other encodings must be re-exported.
 - Margin Memory reads cached Excel formula results and does not evaluate formulas.
 - Multi-sheet actual aggregation and construction unit conversion are unsupported.
+- XLSX files whose package or workbook XML cannot be interpreted safely must be re-saved as a standard `.xlsx` in Excel/LibreOffice or exported as UTF-8 CSV.
 - Expired-import cleanup is request/operations driven; no scheduled worker exists.
 - ZIP/resource checks are bounded defenses, not proof against every parser CPU attack.
 - Scope approval references and mitigation assessments are human attestations, not automated proof of customer approval or causal savings.
