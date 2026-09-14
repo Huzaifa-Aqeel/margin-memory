@@ -9,6 +9,8 @@ dist/
 build/
 coverage/
 *.tsbuildinfo
+/public/manifest.xml
+/certificates/
 
 # Local environment and credentials
 .env
@@ -24,6 +26,10 @@ blob-report/
 .agentcore-*.json
 supabase/.temp/
 .generated/
+/docs/
+/AGENTS.md
+/audit-assets/
+/screenshots/
 
 # Editors and OS
 .vscode/
