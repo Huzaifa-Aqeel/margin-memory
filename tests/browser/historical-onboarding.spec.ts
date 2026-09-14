@@ -33,15 +33,18 @@ async function capture(page: import('@playwright/test').Page, name: string) {
 }
 
 async function confirmBaseline(page: import('@playwright/test').Page) {
-  await page.getByLabel('I confirm this describes the estimate file selected above.').check()
+  await page.getByRole('radio', { name: /Final submitted bid/ }).check()
 }
 
 test('streamlines a clean import and keeps source detail behind disclosure', async ({ page }) => {
   await attachFiles(page)
-  await expect(page.getByLabel('What does the estimate file represent?')).toHaveValue('final_submitted')
+  await expect(page.getByLabel('Historical evidence progress')).toContainText('1 trusted completed job ready')
+  await expect(page.getByText('Suggested', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Job name')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Analyze estimate and actuals' })).toBeDisabled()
   await confirmBaseline(page)
+  await page.locator('input[name="notesFile"]').setInputFiles({ name: 'Baker Office closeout.md', mimeType: 'text/markdown', buffer: Buffer.from('Final costs confirmed by the project manager.') })
+  await expect(page.getByRole('radio', { name: /Final submitted bid/ })).toBeChecked()
   await page.getByRole('button', { name: 'Analyze estimate and actuals' }).click()
   await expect(page.getByLabel('Import preview')).toContainText('2 detail rows recognized')
   await expect(page.getByLabel('Import preview')).toContainText('Actual cost coverage is complete')
@@ -55,12 +58,40 @@ test('streamlines a clean import and keeps source detail behind disclosure', asy
   const importButton = page.getByRole('button', { name: 'Import completed job' })
   await expect(importButton).toBeDisabled()
   await page.getByLabel(/I confirm this is the final and complete actual-cost export/).check()
-  await page.getByLabel('Does the final work match the original estimate scope?').selectOption('no_changes')
+  await page.getByLabel(/Does the final work match the .* scope/).selectOption('no_changes')
   await expect(importButton).toBeEnabled()
   await capture(page, 'clean-review')
   await importButton.click()
   await expect(page.getByLabel('Completed job import result')).toContainText('Eligible for future Margin Checks')
+  await expect(page.getByRole('button', { name: 'Import another similar job' })).toBeVisible()
   await capture(page, 'eligible-completion')
+})
+
+test('pairs and sequentially reviews several completed jobs with shared metadata', async ({ page }) => {
+  await page.getByRole('button', { name: /Several completed jobs/ }).click()
+  await page.getByLabel('Estimate files').setInputFiles([
+    { name: 'Baker Office - Final Estimate.csv', mimeType: 'text/csv', buffer: Buffer.from('Description,Category,Cost,Hours\nLabor,Labor,500,10') },
+    { name: 'Harbor Medical - Final Estimate.csv', mimeType: 'text/csv', buffer: Buffer.from('Description,Category,Cost,Hours\nLabor,Labor,500,10') },
+  ])
+  await page.getByLabel('Final actual-cost files').setInputFiles([
+    { name: 'Harbor Medical - Actuals 2026-08-30.csv', mimeType: 'text/csv', buffer: Buffer.from('Description,Category,Cost,Hours\nLabor,Labor,500,10') },
+    { name: 'Baker Office - Actuals 2026-08-31.csv', mimeType: 'text/csv', buffer: Buffer.from('Description,Category,Cost,Hours\nLabor,Labor,500,10') },
+  ])
+  await expect(page.getByLabel('Matching actuals').first()).toHaveValue('1')
+  await expect(page.getByLabel('Matching actuals').last()).toHaveValue('0')
+  await page.getByLabel('Comparison baseline').selectOption('final_submitted')
+  await page.getByLabel('Project type (optional)').selectOption('Office retrofit')
+  await page.getByLabel('Customer type (optional)').selectOption('Commercial')
+  await page.getByRole('button', { name: 'Prepare paired reviews' }).click()
+  await page.getByRole('button', { name: 'Analyze all pairs' }).click()
+  const completeness = page.getByLabel(/I confirm this is the final and complete actual-cost export/)
+  await expect(completeness).toHaveCount(2)
+  for (const checkbox of await completeness.all()) await checkbox.check()
+  const scopes = page.getByLabel(/Does the final work match the .* scope/)
+  for (const scope of await scopes.all()) await scope.selectOption('no_changes')
+  await expect(page.getByRole('button', { name: 'Import 2 ready jobs' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Import 2 ready jobs' }).click()
+  await expect(page.getByLabel('Completed job import result')).toHaveCount(2)
 })
 
 test('asks only for an ambiguous worksheet and then reuses the resolved review', async ({ page }) => {
@@ -90,7 +121,7 @@ test('explains partial actuals and archives only after explicit limitation and s
   await expect(page.getByLabel('Import preview')).toContainText('cannot be used for numerical historical evidence')
   await expect(page.getByLabel(/I confirm this is the final and complete actual-cost export/)).toHaveCount(0)
   await page.getByLabel(/I understand these specific limitations/).check()
-  await page.getByLabel('Does the final work match the original estimate scope?').selectOption('unreconciled')
+  await page.getByLabel(/Does the final work match the .* scope/).selectOption('unreconciled')
   await expect(page.getByRole('button', { name: 'Import completed job' })).toBeEnabled()
   await capture(page, 'partial-actuals')
 })
@@ -112,7 +143,7 @@ test('leaves metadata blank when filenames are generic and reveals scope-change 
   await expect(page.getByLabel('Completed date')).toHaveValue('')
   await expect(page.getByLabel('Project type')).toHaveValue('')
   await expect(page.getByLabel('Customer type')).toHaveValue('')
-  await page.getByLabel('Does the final work match the original estimate scope?').selectOption('adjusted')
+  await page.getByLabel(/Does the final work match the .* scope/).selectOption('adjusted')
   await expect(page.getByText('Scope change 1')).toBeVisible()
 })
 

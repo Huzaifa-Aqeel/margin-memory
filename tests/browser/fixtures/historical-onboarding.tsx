@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-import { ImportJobForm } from '../../../src/components/import-job-form'
+import { HistoricalOnboardingWorkspace } from '../../../src/components/historical-onboarding-workspace'
 
 type Scenario = 'clean' | 'worksheet' | 'mapping' | 'partial' | 'blocked'
 
@@ -66,7 +66,7 @@ window.fetch = async (input, init) => {
 function Fixture() {
   return <main className="page"><div className="actions fixture-switcher" aria-label="Import scenarios">
     {(['clean', 'worksheet', 'mapping', 'partial', 'blocked'] as const).map(value => <button type="button" key={value} onClick={() => { scenario = value }}>{value}</button>)}
-  </div><div className="page-head"><div><div className="eyebrow">Historical onboarding</div><h1>Import a completed job</h1><p className="subtle">Compare an existing estimate with the final job costs.</p></div></div><ImportJobForm/></main>
+  </div><div className="page-head"><div><div className="eyebrow">Historical onboarding</div><h1>Build a useful comparison set</h1><p className="subtle">Compare existing estimates with final job costs.</p></div></div><HistoricalOnboardingWorkspace initialReadyCount={1}/></main>
 }
 
 createRoot(document.getElementById('root')!).render(<Fixture />)

@@ -1,13 +1,13 @@
 import { comparisonVariances, ScopeInputError, validateScopeInput } from '@/lib/domain/scope'
 import { historicalEvidenceReadiness, isJobEligibleForTrustedMemory } from '@/lib/domain/memory-policy'
 import { embeddingsEnabled } from '@/lib/embeddings/provider'
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { calculateVariances, sumActual, sumEstimate } from '@/lib/domain/analytics'
 import { id } from '@/lib/domain/ids'
 import type { Job, Lesson } from '@/lib/domain/types'
 import { hashImportAnalysis, ImportReviewError, spreadsheetProvenance, verifyImportReviewContract, warningAcknowledgements, type EstimateBaselineRole, type ImportReviewAnalysis } from '@/lib/import-contract'
 import { commitReviewedHistoricalJob, getImportReviewRecord, getJob } from '@/lib/repository/store'
-import { repairMemory } from '@/lib/repository/memory'
+import { prepareMemoryIndexJobs, processMemoryIndexJobs } from '@/lib/repository/memory'
 import { HistoricalImportMetadataError, parseHistoricalJobMetadata } from '@/lib/historical-import-metadata'
 import { assessImportPair, IMPORT_PARSER_VERSION, parseActualFileWithReport, parseEstimateFileWithReport, requireImportApproval, SpreadsheetInputError } from '@/lib/spreadsheet'
 
@@ -47,8 +47,13 @@ export async function POST(request: Request) {
   const lesson=proposeLesson(job);const reportHash=hashImportAnalysis(analysis)
   const committedId=await commitReviewedHistoricalJob({reviewId,reportHash,acknowledged,job,lessons:lesson?[lesson]:[],estimateProvenance:spreadsheetProvenance(estimateResult.provenance,'estimate'),actualProvenance:spreadsheetProvenance(actualResult.provenance,'actuals')})
   const committed=await getJob(committedId);if(!committed)throw new Error('Committed job could not be loaded.')
-  const warnings:string[]=[];let vectorIndexed=false
-  if(isJobEligibleForTrustedMemory(committed)&&embeddingsEnabled()){try{const result=await repairMemory(committed.id);vectorIndexed=result.readiness.pendingJobs===0}catch(error){console.error(error);warnings.push('Historical evidence preparation is pending and will retry automatically.')}}
+  const warnings:string[]=[];const vectorIndexed=false
+  if(isJobEligibleForTrustedMemory(committed)&&embeddingsEnabled()){
+   try{
+    const prepared=await prepareMemoryIndexJobs(committed.id)
+    after(async()=>{try{await processMemoryIndexJobs(committed.id,prepared,4)}catch(error){console.error('Deferred historical memory preparation failed:',error)}})
+   }catch(error){console.error(error);warnings.push('Historical evidence preparation is pending and will retry automatically.')}
+  }
   return NextResponse.json({job:committed,lesson,vectorIndexed,warnings,historicalEvidence:historicalEvidenceReadiness(committed)})
  }catch(error){console.error(error);return NextResponse.json({error:error instanceof Error?error.message:'Could not import completed job.'},{status:error instanceof ScopeInputError||error instanceof SpreadsheetInputError||error instanceof HistoricalImportMetadataError?400:error instanceof ImportReviewError?409:500})}
 }

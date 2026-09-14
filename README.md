@@ -53,7 +53,9 @@ Margin Memory follows one rule:
 
 ### Historical onboarding
 
-Upload an estimate and its actual/job-cost export as CSV or XLSX. Margin Memory detects worksheets, headers, mappings, quantities, labor hours, totals, categories, and rollups. Clean files follow an exception-light path; ambiguity requires focused review; unsafe financial interpretation is blocked.
+Start with 3–5 recent completed jobs that resemble the work you want to review. Upload one estimate/actual pair, or select up to ten of each and let Margin Memory propose strong filename matches. Every proposed pair remains editable and receives its own review contract. Shared project/customer context can be applied visibly across a batch; analysis and commits still run one job at a time.
+
+Margin Memory detects worksheets, headers, mappings, quantities, labor hours, totals, categories, and rollups. Clean files follow an exception-light path; ambiguity requires focused review; unsafe financial interpretation is blocked. Approved scope changes can be entered directly or pasted from a reviewed Excel/CSV table into the same deterministic reconciliation structure.
 
 The import layer includes:
 
@@ -64,6 +66,8 @@ The import layer includes:
 - line-level file, worksheet, row, and mapping provenance;
 - private source staging, transactional commits, and idempotent retry;
 - bounded CSV/XLSX parsing and tenant-scoped storage.
+
+Historical imports return as soon as the authoritative transaction and durable memory work are recorded. Embedding preparation continues after the response and retains its existing retry state if the external model is temporarily unavailable.
 
 The files under `samples/` are synthetic examples for local evaluation. They are not customer records.
 

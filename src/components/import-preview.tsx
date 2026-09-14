@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type RefObject } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useState, type RefObject } from 'react'
 import type { HistoricalImportMetadataSuggestion } from '@/lib/historical-import-metadata'
 import type { ImportIssue, ImportMappingField, ImportMappingSelection, ImportPairReport, SpreadsheetImportReport } from '@/lib/spreadsheet'
 
@@ -80,18 +80,29 @@ export function ImportPreviewSummary({ preview, onReady }: { preview: PreviewRes
   </div>
 }
 
-export function ImportPreview({ formRef, mode, onReady, onAnalysis, disabled = false }: { formRef: RefObject<HTMLFormElement | null>; mode: 'estimate' | 'actual' | 'pair'; onReady: (ready: boolean) => void; onAnalysis?: (preview: PreviewResult | null) => void; disabled?: boolean }) {
+export type ImportPreviewHandle = { inspect: () => Promise<boolean> }
+
+type ImportPreviewProps = {
+  formRef?: RefObject<HTMLFormElement | null>
+  getFormData?: () => FormData | null
+  mode: 'estimate' | 'actual' | 'pair'
+  onReady: (ready: boolean) => void
+  onAnalysis?: (preview: PreviewResult | null) => void
+  disabled?: boolean
+}
+
+export const ImportPreview = forwardRef<ImportPreviewHandle, ImportPreviewProps>(function ImportPreview({ formRef, getFormData, mode, onReady, onAnalysis, disabled = false }, ref) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [worksheets, setWorksheets] = useState<{ estimate?: string; actual?: string }>({})
   const [mappings, setMappings] = useState<{ estimate?: ImportMappingSelection; actual?: ImportMappingSelection }>({})
   async function inspect() {
-    const form = formRef.current
-    if (!form) return
+    const body = getFormData?.() ?? (formRef?.current ? new FormData(formRef.current) : null)
+    if (!body || disabled) return false
     setBusy(true); setError(''); setPreview(null); onAnalysis?.(null); onReady(false)
     try {
-      const body = new FormData(form); body.set('mode', mode)
+      body.set('mode', mode)
       if (worksheets.estimate) body.set('estimateWorksheet', worksheets.estimate)
       if (worksheets.actual) body.set('actualWorksheet', worksheets.actual)
       if (mappings.estimate && Object.keys(mappings.estimate).length) body.set('estimateMapping', JSON.stringify(mappings.estimate))
@@ -101,9 +112,11 @@ export function ImportPreview({ formRef, mode, onReady, onAnalysis, disabled = f
       if (!response.ok) throw new Error(data.error || 'Could not analyze spreadsheets.')
       setPreview(data); onAnalysis?.(data)
       if (data.canImport && !data.requiresReview) onReady(true)
-    } catch (error) { setError(error instanceof Error ? error.message : 'Could not analyze spreadsheets.') }
+      return true
+    } catch (error) { setError(error instanceof Error ? error.message : 'Could not analyze spreadsheets.'); return false }
     finally { setBusy(false) }
   }
+  useImperativeHandle(ref, () => ({ inspect }))
   const hasSourceChoice = Boolean(preview?.reports.some(report => !report.sheetName && report.worksheets.some(sheet => sheet.plausible && !sheet.hidden)))
   const hasMappingChoice = Boolean(preview?.reports.some(report => preview.issues.some(issue => issue.code === 'ambiguous_mapping') && Object.values(report.mappingOptions ?? {}).some(options => (options?.length ?? 0) > 1)))
   const analyzeLabel = mode === 'pair' ? 'Analyze estimate and actuals' : mode === 'estimate' ? 'Analyze estimate' : 'Analyze actuals'
@@ -117,4 +130,4 @@ export function ImportPreview({ formRef, mode, onReady, onAnalysis, disabled = f
     {(hasSourceChoice || hasMappingChoice) && <button type="button" className="btn primary" onClick={inspect} disabled={busy || disabled}>Analyze selected source</button>}
     {preview && <ImportPreviewSummary preview={preview} onReady={onReady}/>} 
   </div>
-}
+})
