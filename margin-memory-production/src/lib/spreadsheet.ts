@@ -17,15 +17,26 @@ export type ExcludedImportRow = {
 export type MalformedImportCell = { sourceRow: number; column: string; value: string; reason: string }
 export type WorksheetCandidate = { name: string; hidden: boolean; plausible: boolean; selected: boolean; headerRow: number | null; score: number }
 export type ResolvedImportMapping = {
+  rowType?: string
   description?: string
   category?: string
   costCode?: string
   phase?: string
   division?: string
   cost?: string
+  laborCost?: string
+  materialCost?: string
+  equipmentCost?: string
+  subcontractorCost?: string
+  otherCost?: string
   hours?: string
+  fieldLaborHours?: string
+  shopLaborHours?: string
+  indirectLaborHours?: string
   quantity?: string
   unitCost?: string
+  materialUnitCost?: string
+  laborRate?: string
   unit?: string
 }
 export type ImportMappingField = keyof ResolvedImportMapping
@@ -44,7 +55,7 @@ export type TotalReconciliation = {
   reviewTolerance: number
 }
 export type StructuredDimensionValues = { costCodes: string[]; phases: string[]; divisions: string[] }
-export const IMPORT_PARSER_VERSION = '2026-09-p1-v2'
+export const IMPORT_PARSER_VERSION = '2026-09-p1-v3'
 export const IMPORT_RESOURCE_LIMITS = {
   fileBytes: 25 * 1024 * 1024,
   expandedWorkbookBytes: 128 * 1024 * 1024,
@@ -121,7 +132,7 @@ export class SpreadsheetInputError extends Error {
 
 const UNREADABLE_XLSX_MESSAGE = 'This workbook could not be read safely as a standard XLSX file. It may be damaged or use an unsupported exporter structure. Open it in Excel or LibreOffice, save a new .xlsx copy, and try again.'
 
-const importMappingFields = new Set<ImportMappingField>(['description', 'category', 'costCode', 'phase', 'division', 'cost', 'hours', 'quantity', 'unitCost', 'unit'])
+const importMappingFields = new Set<ImportMappingField>(['rowType', 'description', 'category', 'costCode', 'phase', 'division', 'cost', 'laborCost', 'materialCost', 'equipmentCost', 'subcontractorCost', 'otherCost', 'hours', 'fieldLaborHours', 'shopLaborHours', 'indirectLaborHours', 'quantity', 'unitCost', 'materialUnitCost', 'laborRate', 'unit'])
 export function parseImportMappingSelection(input: unknown): ImportMappingSelection | undefined {
   if (input === undefined || input === null || input === '') return undefined
   let value: unknown = input
@@ -145,16 +156,27 @@ export function parseImportMappingSelection(input: unknown): ImportMappingSelect
 export const SOURCE_TOTAL_TOLERANCE = { absolute: 1, percentage: 0.0001, absoluteCap: 10, reviewPercentage: 0.001, reviewAbsoluteCap: 100 } as const
 
 const patterns = {
+  rowType: [/^row type$/, /^line type$/, /^record type$/],
   description: [/description/, /^item(?: name)?$/, /^scope(?: of work)?$/, /^work(?: description)?$/, /^activity$/, /^name$/],
   category: [/^category$/, /cost type/, /^type$/, /^class$/],
   costCode: [/cost code/], phase: [/^phase$/], division: [/^division(?: code)?$/],
-  estimateHours: [/estimated hours/, /budget(?:ed)? hours/, /estimated (?:mh|hrs)/, /budget(?:ed)? (?:mh|hrs)/, /labor (?:hours|hrs)/, /^hours$/, /man (?:hours|hrs)/],
-  actualHours: [/actual (?:hours|hrs)/, /worked (?:hours|hrs)/, /(?:hours|hrs) worked/, /actual mh/, /labor (?:hours|hrs)/, /^hours$/, /man (?:hours|hrs)/],
-  quantity: [/^quantity$/, /^qty$/],
-  unitCost: [/^unit cost$/, /^unit price$/, /^unit rate$/, /^rate$/, /^labor rate$/],
-  estimateCost: [/^estimated cost$/, /^budget(?:ed)? cost$/, /^budget amount$/, /^budget$/, /^cost$/, /^total cost$/, /^amount$/, /^total$/, /^extension$/, /^extended cost$/, /^mat ext$/],
-  actualCost: [/^actual cost$/, /^actual amount$/, /^job cost$/, /^incurred$/, /^cost$/, /^total cost$/, /^amount$/, /^total$/, /^extension$/, /^extended cost$/, /^mat ext$/],
-  unit: [/^unit$/, /^uom$/, /^mat unit$/],
+  estimateHours: [/^estimated hours$/, /^budget(?:ed)? hours$/, /^estimated (?:mh|hrs)$/, /^budget(?:ed)? (?:mh|hrs)$/, /^labor (?:hours|hrs)$/, /^hours$/, /^man (?:hours|hrs)$/],
+  actualHours: [/^actual (?:hours|hrs)$/, /^worked (?:hours|hrs)$/, /^(?:hours|hrs) worked$/, /^actual mh$/, /^labor (?:hours|hrs)$/, /^installed (?:hours|hrs)$/, /^hours$/, /^man (?:hours|hrs)$/],
+  fieldLaborHours: [/^field labor (?:hours|hrs)$/],
+  shopLaborHours: [/^shop labor (?:hours|hrs)$/],
+  indirectLaborHours: [/^indirect labor (?:hours|hrs)$/],
+  quantity: [/^quantity$/, /^qty$/, /^actual quantity$/, /^qty actual$/, /^actual qty$/],
+  unitCost: [/^unit cost$/, /^unit price$/, /^unit rate$/, /^rate$/],
+  materialUnitCost: [/^mat(?:erial)? unit(?: cost| price)?$/],
+  laborRate: [/^labor rate$/, /^loaded labor rate$/, /^burdened labor rate$/],
+  estimateCost: [/^estimated cost$/, /^budget(?:ed)? cost$/, /^budget amount$/, /^budget$/, /^direct cost$/, /^cost$/, /^total cost$/, /^total amount$/, /^amount$/, /^total$/, /^extension$/, /^extended cost$/, /^mat ext$/],
+  actualCost: [/^actual cost$/, /^actual amount$/, /^actual total$/, /^total actual$/, /^job cost$/, /^incurred$/, /^cost$/, /^total cost$/, /^total amount$/, /^amount$/, /^total$/, /^extension$/, /^extended cost$/, /^mat ext$/],
+  laborCost: [/^labor$/, /^labor (?:cost|ext|extension|amount)$/, /^loaded labor$/, /^burdened labor$/],
+  materialCost: [/^(?:material|materials)$/, /^total (?:material|materials)$/, /^(?:material|materials|mat) (?:cost|ext|extension|amount)$/],
+  equipmentCost: [/^equipment(?: cost| amount)?$/],
+  subcontractorCost: [/^(?:subcontract|subcontracts|subcontractor)(?: cost| amount)?$/],
+  otherCost: [/^other(?: cost| amount)?$/],
+  unit: [/^unit$/, /^uom$/],
 } as const
 
 type RawRow = { rowNumber: number; values: unknown[] }
@@ -291,7 +313,7 @@ function headerScore(row: unknown[]) {
 function bestTable(rows: RawRow[]) {
   const nonempty = rows.filter(row => row.values.some(value => asText(value) !== ''))
   if (!nonempty.length) return { header: undefined, score: 0 }
-  const best = nonempty.slice(0, Math.min(12, nonempty.length)).map(row => ({ row, score: headerScore(row.values) })).sort((a, b) => b.score - a.score || a.row.rowNumber - b.row.rowNumber)[0]
+  const best = nonempty.slice(0, Math.min(100, nonempty.length)).map(row => ({ row, score: headerScore(row.values) })).sort((a, b) => b.score - a.score || a.row.rowNumber - b.row.rowNumber)[0]
   return { header: best.row, score: best.score }
 }
 
@@ -358,7 +380,29 @@ function resolveColumn(headers: ColumnRef[], candidates: readonly RegExp[]) {
   return { selected, all }
 }
 function resolveMapping(headers: ColumnRef[], kind: 'estimate' | 'actual', selections: ImportMappingSelection = {}) {
-  const definitions: Record<keyof ResolvedImportMapping, readonly RegExp[]> = { description: patterns.description, category: patterns.category, costCode: patterns.costCode, phase: patterns.phase, division: patterns.division, cost: kind === 'estimate' ? patterns.estimateCost : patterns.actualCost, hours: kind === 'estimate' ? patterns.estimateHours : patterns.actualHours, quantity: patterns.quantity, unitCost: patterns.unitCost, unit: patterns.unit }
+  const definitions: Record<keyof ResolvedImportMapping, readonly RegExp[]> = {
+    rowType: patterns.rowType,
+    description: patterns.description,
+    category: patterns.category,
+    costCode: patterns.costCode,
+    phase: patterns.phase,
+    division: patterns.division,
+    cost: kind === 'estimate' ? patterns.estimateCost : patterns.actualCost,
+    laborCost: patterns.laborCost,
+    materialCost: patterns.materialCost,
+    equipmentCost: patterns.equipmentCost,
+    subcontractorCost: patterns.subcontractorCost,
+    otherCost: patterns.otherCost,
+    hours: kind === 'estimate' ? patterns.estimateHours : patterns.actualHours,
+    fieldLaborHours: patterns.fieldLaborHours,
+    shopLaborHours: patterns.shopLaborHours,
+    indirectLaborHours: patterns.indirectLaborHours,
+    quantity: patterns.quantity,
+    unitCost: patterns.unitCost,
+    materialUnitCost: patterns.materialUnitCost,
+    laborRate: patterns.laborRate,
+    unit: patterns.unit,
+  }
   const mapping = {} as InternalMapping; const mappingCandidates: Partial<Record<keyof ResolvedImportMapping, string[]>> = {}; const mappingOptions: Partial<Record<ImportMappingField, ImportMappingOption[]>> = {}; const ambiguous: Array<{ field: keyof ResolvedImportMapping; columns: ColumnRef[] }> = []; const invalidSelections: ImportMappingField[] = []
   for (const field of Object.keys(definitions) as Array<keyof ResolvedImportMapping>) {
     const resolved = resolveColumn(headers, definitions[field]); const requested = selections[field]
@@ -381,13 +425,21 @@ function classifySummary(description: string, category: string): SummaryClassifi
   const normalize = (text: string) => text.trim().toLowerCase().replace(/[&_:/\s-]+/g, ' ').trim()
   const labels = [description, category].map(normalize).filter(Boolean)
   if (!labels.length) return { kind: 'summary', overall: false }
-  const overall = /^(?:total|grand total|job total|project total|estimate total|bid total|total cost|total estimated cost|estimated cost total|total project cost|project cost total|total direct cost|direct cost total|total job cost|direct job cost total)$/
+  const overall = /^(?:total|grand total|job total|project total|estimate total|bid total|actual totals?|total actual|total cost|total estimated cost|estimated cost total|total project cost|project cost total|total direct cost|direct cost total|total job cost|direct job cost total)$/
   const subtotal = /^(?:subtotal|(?:labor|labour|material|materials|equipment|subcontractor|permit|category|section) (?:total|subtotal)|(?:labor material|material labor) total)$/
   const numbered = /^(?:division|phase|section|category)\s+[a-z0-9.]+\s+(?:total|subtotal)$/
   if (labels.some(label => overall.test(label))) return { kind: 'summary', overall: true }
   if (labels.some(label => subtotal.test(label) || numbered.test(label))) return { kind: 'summary', overall: false }
   if (labels.some(label => /\b(?:total|subtotal)$/.test(label))) return { kind: 'ambiguous', overall: false }
   return { kind: 'detail', overall: false }
+}
+function classifyExplicitRowType(value: string): SummaryClassification | undefined {
+  const normalized = value.trim().toLowerCase().replace(/[&_:/\s-]+/g, ' ').trim()
+  if (!normalized) return undefined
+  if (/^(?:grand total|overall total|job total|project total|estimate total|bid total|actual totals?)$/.test(normalized)) return { kind: 'summary', overall: true }
+  if (/^(?:subtotal|section total|category total|division total|phase total|rollup)$/.test(normalized)) return { kind: 'summary', overall: false }
+  if (/^(?:detail|line item|item|credit|adjustment)$/.test(normalized)) return { kind: 'detail', overall: false }
+  return undefined
 }
 export function summaryRow(description: string, rawCategory: string) { return classifySummary(description, rawCategory).kind === 'summary' }
 
@@ -406,6 +458,14 @@ function reconcileTotals(sourceTotals: number[], normalizedDetailTotal: number):
 
 function normalizeUnit(value:string){const key=value.trim().toUpperCase().replaceAll('.','');const aliases:Record<string,string>={EACH:'EA',EA:'EA',LF:'LF','LIN FT':'LF','LINEAR FEET':'LF',FT:'FT',FEET:'FT',SF:'SF','SQ FT':'SF',CY:'CY','CU YD':'CY',HR:'HR',HRS:'HR',HOUR:'HR',HOURS:'HR',DAY:'DAY',DAYS:'DAY',LOT:'LOT',LS:'LS','LUMP SUM':'LS'};return aliases[key]}
 function originalValues(row:RawRow,mapping:InternalMapping){return Object.fromEntries((Object.keys(mapping) as Array<keyof ResolvedImportMapping>).flatMap(field=>mapping[field]?[ [field,asText(cell(row,mapping[field]))] ]:[])) as Partial<Record<keyof ResolvedImportMapping,string>>}
+const componentCostFields = [
+  { field: 'laborCost', category: 'labor' },
+  { field: 'materialCost', category: 'materials' },
+  { field: 'equipmentCost', category: 'equipment' },
+  { field: 'subcontractorCost', category: 'subcontractor' },
+  { field: 'otherCost', category: 'other' },
+] as const satisfies ReadonlyArray<{ field: keyof ResolvedImportMapping; category: CostCategory }>
+const laborHourFields = ['fieldLaborHours', 'shopLaborHours', 'indirectLaborHours'] as const satisfies ReadonlyArray<keyof ResolvedImportMapping>
 
 function rawSheetFromExcelSnapshot(snapshotInput: unknown): { snapshot: ExcelLiveSnapshot; fileName: string; sheets: RawSheet[] } {
   const snapshot = parseExcelLiveSnapshot(snapshotInput)
@@ -440,35 +500,96 @@ async function analyzeSheets(sheets: RawSheet[], fileName: string, kind: 'estima
   if (duplicateHeaders.length) issues.push({ severity: 'error', code: 'duplicate_headers', message: `Duplicate mapped headers are ambiguous: ${[...new Set(duplicateHeaders.map(column => column.header))].join(', ')}.` })
   if ((selected?.score ?? 0) < 2) issues.push({ severity: 'error', code: 'header_not_recognized', message: 'Could not confidently identify a header row. Include description/category plus cost or hours.' })
   if (!resolved.mapping.description && !resolved.mapping.category && !resolved.mapping.costCode && !resolved.mapping.phase && !resolved.mapping.division) issues.push({ severity: 'error', code: 'description_missing', message: 'No description, category, cost-code, division, class, or phase column was detected.' })
-  if (!resolved.mapping.cost && !(resolved.mapping.quantity && resolved.mapping.unitCost) && !(resolved.mapping.hours && resolved.mapping.unitCost)) issues.push({ severity: 'error', code: 'cost_missing', message: 'No cost/amount/extension column or usable quantity/rate combination was detected.' })
+  const mappedComponentCosts = componentCostFields.filter(component => resolved.mapping[component.field])
+  const mappedLaborHourFields = laborHourFields.filter(field => resolved.mapping[field])
+  const hasHoursMapping = Boolean(resolved.mapping.hours || mappedLaborHourFields.length)
+  const canCalculateCost = (resolved.mapping.quantity && (resolved.mapping.unitCost || resolved.mapping.materialUnitCost)) || (hasHoursMapping && (resolved.mapping.unitCost || resolved.mapping.laborRate))
+  if (!resolved.mapping.cost && !mappedComponentCosts.length && !canCalculateCost) issues.push({ severity: 'error', code: 'cost_missing', message: 'No cost/amount/extension column, component-cost columns, or usable quantity/rate combination was detected.' })
 
   const dataRows = selected && rawHeader ? selected.sheet.rows.filter(row => row.rowNumber > rawHeader.rowNumber) : []
-  const excludedRows: ExcludedImportRow[] = []; const malformedCells: MalformedImportCell[] = []; const sourceTotals: number[] = []; const lines: Array<EstimateLine | ActualLine> = []; const provenance:NormalizedLineProvenance[]=[]; let cachedFormulaCells = 0
-  const numericFields = ['cost', 'hours', 'quantity', 'unitCost'] as const
+  const excludedRows: ExcludedImportRow[] = []; const malformedCells: MalformedImportCell[] = []; const sourceTotals: number[] = []; const lines: Array<EstimateLine | ActualLine> = []; const provenance:NormalizedLineProvenance[]=[]; let cachedFormulaCells = 0; let tableCompleted = false
+  const numericFields = ['cost', 'laborCost', 'materialCost', 'equipmentCost', 'subcontractorCost', 'otherCost', 'hours', 'fieldLaborHours', 'shopLaborHours', 'indirectLaborHours', 'quantity', 'unitCost', 'materialUnitCost', 'laborRate'] as const
   for (const row of dataRows) {
     if (!row.values.some(value => asText(value) !== '')) { excludedRows.push({ sourceRow: row.rowNumber, reason: 'blank', description: '' }); continue }
+    if (tableCompleted) {
+      const values = row.values.map(asText).filter(Boolean)
+      const label = values[0] ?? ''
+      const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+      if (/^(?:source total|control total|source total control)$/.test(normalizedLabel)) {
+        const candidates = [...new Set(values.slice(1))]
+        for (const candidate of candidates) {
+          const parsedControl = parseNumber(candidate)
+          if (parsedControl.kind === 'valid') sourceTotals.push(parsedControl.value)
+          else if (/[$€£\d]/.test(candidate)) malformedCells.push({ sourceRow: row.rowNumber, column: label, value: candidate, reason: parsedControl.kind === 'invalid' ? parsedControl.reason : 'Source total is missing.' })
+        }
+      }
+      excludedRows.push({ sourceRow: row.rowNumber, reason: 'section_header', description: label }); continue
+    }
     const headerMatches = headers.filter(column => normalizeHeader(row.values[column.index]) === column.header).length
     if (headerMatches >= 2) { excludedRows.push({ sourceRow: row.rowNumber, reason: 'repeated_header', description: rowDescription(row, resolved.mapping) }); continue }
-    const description = asText(cell(row, resolved.mapping.description)); const costCode = asText(cell(row, resolved.mapping.costCode)) || undefined; const phase = asText(cell(row, resolved.mapping.phase)) || undefined; const division = asText(cell(row, resolved.mapping.division)) || undefined
+    const description = asText(cell(row, resolved.mapping.description)); const rowType = asText(cell(row, resolved.mapping.rowType)); const costCode = asText(cell(row, resolved.mapping.costCode)) || undefined; const phase = asText(cell(row, resolved.mapping.phase)) || undefined; const division = asText(cell(row, resolved.mapping.division)) || undefined
     const rawCategory = asText(cell(row, resolved.mapping.category)) || division || costCode || phase || ''
     const parsed = Object.fromEntries(numericFields.map(field => [field, parseNumber(cell(row, resolved.mapping[field]))])) as Record<typeof numericFields[number], ParsedNumber>
     const invalid = numericFields.flatMap(field => parsed[field].kind === 'invalid' && resolved.mapping[field] ? [{ sourceRow: row.rowNumber, column: resolved.mapping[field]!.header, value: parsed[field].display, reason: parsed[field].reason }] : [])
     if (invalid.length) { malformedCells.push(...invalid); excludedRows.push({ sourceRow: row.rowNumber, reason: 'malformed_numeric', description: description || rawCategory }); continue }
     cachedFormulaCells += numericFields.filter(field => parsed[field].kind === 'valid' && parsed[field].formulaCached).length
-    const classification = classifySummary(description, rawCategory)
-    if (classification.kind === 'summary') { if (classification.overall && parsed.cost.kind === 'valid') sourceTotals.push(parsed.cost.value); excludedRows.push({ sourceRow: row.rowNumber, reason: 'summary', description: description || rawCategory }); continue }
+    const componentValues = mappedComponentCosts.flatMap(component => {
+      const value = parsed[component.field]
+      return value.kind === 'valid' ? [{ ...component, value: value.value }] : []
+    })
+    const componentTotal = componentValues.reduce((sum, component) => sum + component.value, 0)
+    const classification = classifyExplicitRowType(rowType) ?? classifySummary(description, rawCategory)
+    if (classification.kind === 'summary') {
+      const reportedTotal = parsed.cost.kind === 'valid' ? parsed.cost.value : componentValues.length ? componentTotal : undefined
+      if (classification.overall && reportedTotal !== undefined) sourceTotals.push(reportedTotal)
+      if (classification.overall) tableCompleted = true
+      excludedRows.push({ sourceRow: row.rowNumber, reason: 'summary', description: description || rawCategory }); continue
+    }
     if (classification.kind === 'ambiguous') { excludedRows.push({ sourceRow: row.rowNumber, reason: 'ambiguous', description: description || rawCategory }); issues.push({ severity: 'error', code: 'ambiguous_summary_row', message: `Row ${row.rowNumber} looks like a rollup but cannot be classified safely: ${description || rawCategory}.` }); continue }
     if (!numericFields.some(field => parsed[field].kind === 'valid')) { excludedRows.push({ sourceRow: row.rowNumber, reason: description || rawCategory ? 'section_header' : 'unmapped', description: description || rawCategory }); continue }
-    const hours = parsed.hours.kind === 'valid' ? parsed.hours.value : undefined; const quantity = parsed.quantity.kind === 'valid' ? parsed.quantity.value : undefined; const unitCost = parsed.unitCost.kind === 'valid' ? parsed.unitCost.value : undefined
+    const genericHours = parsed.hours.kind === 'valid' ? parsed.hours.value : undefined
+    const laborHourValues = mappedLaborHourFields.flatMap(field => parsed[field].kind === 'valid' ? [parsed[field]] : []).map(value => value.kind === 'valid' ? value.value : 0)
+    const hours = laborHourValues.length ? laborHourValues.reduce((sum, value) => sum + value, 0) : genericHours
+    if (genericHours !== undefined && laborHourValues.length && Math.abs(genericHours - (hours ?? 0)) > 0.01) {
+      excludedRows.push({ sourceRow: row.rowNumber, reason: 'ambiguous', description: description || rawCategory })
+      issues.push({ severity: 'error', code: 'labor_hours_total_mismatch', message: `Row ${row.rowNumber} component labor hours do not match its labor-hours total.` })
+      continue
+    }
+    const quantity = parsed.quantity.kind === 'valid' ? parsed.quantity.value : undefined; const unitCost = parsed.unitCost.kind === 'valid' ? parsed.unitCost.value : undefined
+    const materialUnitCost = parsed.materialUnitCost.kind === 'valid' ? parsed.materialUnitCost.value : unitCost
+    const laborRate = parsed.laborRate.kind === 'valid' ? parsed.laborRate.value : unitCost
+    const baseDescription = description || rawCategory || (kind === 'estimate' ? 'Imported line' : 'Imported actual')
+    const unit=asText(cell(row,resolved.mapping.unit))||undefined;const normalizedUnit=unit?normalizeUnit(unit):undefined
+    const componentTotalMatches = parsed.cost.kind !== 'valid' || Math.abs(parsed.cost.value - componentTotal) <= 0.01
+    if (mappedComponentCosts.length > 1 && componentValues.length && parsed.cost.kind === 'valid' && !componentTotalMatches) {
+        excludedRows.push({ sourceRow: row.rowNumber, reason: 'ambiguous', description: baseDescription })
+        issues.push({ severity: 'error', code: 'component_total_mismatch', message: `Row ${row.rowNumber} component costs total ${Math.round(componentTotal * 100) / 100}, but the row total is ${Math.round(parsed.cost.value * 100) / 100}. Correct or explicitly remap the source before import.` })
+        continue
+    }
+    if (componentValues.length && componentTotalMatches) {
+      for (const component of componentValues) {
+        const componentHours = component.category === 'labor' ? hours : undefined
+        if (component.value === 0 && !componentHours) continue
+        const lineId=id();const componentUnitCost=component.category==='materials'?materialUnitCost:component.category==='labor'?laborRate:undefined
+        const decisions=[`cost_from_${component.field}`,...numericFields.filter(field=>parsed[field].kind==='valid'&&parsed[field].formulaCached).map(field=>`${field}_from_cached_formula`),...(unit&&normalizedUnit?[`unit_normalized_to_${normalizedUnit}`]:unit?['unit_preserved_unrecognized']:[])]
+        const shared={id:lineId,category:component.category,description:baseDescription,costCode,phase,division}
+        if(kind==='estimate')lines.push({...shared,estimatedHours:componentHours,estimatedCost:component.value,quantity:component.category==='materials'?quantity:undefined,unit:component.category==='materials'?unit:undefined,normalizedUnit:component.category==='materials'?normalizedUnit:undefined,unitCost:componentUnitCost})
+        else lines.push({...shared,actualHours:componentHours,actualCost:component.value,quantity:component.category==='materials'?quantity:undefined,unit:component.category==='materials'?unit:undefined,normalizedUnit:component.category==='materials'?normalizedUnit:undefined,unitCost:componentUnitCost})
+        provenance.push({lineId,worksheet:selected?.sheet.name??'',sourceRow:row.rowNumber,mapping:resolved.mappedColumns,originalValues:originalValues(row,resolved.mapping),normalizationDecisions:decisions,parserVersion:IMPORT_PARSER_VERSION})
+      }
+      continue
+    }
     let cost = parsed.cost.kind === 'valid' ? parsed.cost.value : undefined
     if (cost === undefined && unitCost !== undefined && quantity !== undefined) cost = unitCost * quantity
     if (cost === undefined && unitCost !== undefined && hours !== undefined) cost = unitCost * hours
+    if (cost === undefined && materialUnitCost !== undefined && quantity !== undefined) cost = materialUnitCost * quantity
+    if (cost === undefined && laborRate !== undefined && hours !== undefined) cost = laborRate * hours
     if (cost === undefined) cost = 0
     const category = categoryFrom(rawCategory || description)
-    const lineId=id();const unit=asText(cell(row,resolved.mapping.unit))||undefined;const normalizedUnit=unit?normalizeUnit(unit):undefined
-    const decisions=[...(parsed.cost.kind!=='valid'&&unitCost!==undefined&&quantity!==undefined?['cost_from_quantity_times_unit_cost']:[]),...(parsed.cost.kind!=='valid'&&unitCost!==undefined&&quantity===undefined&&hours!==undefined?['cost_from_hours_times_unit_cost']:[]),...numericFields.filter(field=>parsed[field].kind==='valid'&&parsed[field].formulaCached).map(field=>`${field}_from_cached_formula`),...(unit&&normalizedUnit?[`unit_normalized_to_${normalizedUnit}`]:unit?['unit_preserved_unrecognized']:[])]
-    if (kind === 'estimate') lines.push({ id: lineId, category, description: description || rawCategory || 'Imported line', estimatedHours: hours, estimatedCost: cost, quantity, unit, normalizedUnit,unitCost,costCode, phase, division })
-    else lines.push({ id: lineId, category, description: description || rawCategory || 'Imported actual', actualHours: hours, actualCost: cost,quantity,unit,normalizedUnit,unitCost,costCode, phase, division })
+    const lineId=id();const effectiveUnitCost=unitCost??materialUnitCost??laborRate
+    const decisions=[...(parsed.cost.kind!=='valid'&&effectiveUnitCost!==undefined&&quantity!==undefined?['cost_from_quantity_times_unit_cost']:[]),...(parsed.cost.kind!=='valid'&&effectiveUnitCost!==undefined&&quantity===undefined&&hours!==undefined?['cost_from_hours_times_unit_cost']:[]),...numericFields.filter(field=>parsed[field].kind==='valid'&&parsed[field].formulaCached).map(field=>`${field}_from_cached_formula`),...(unit&&normalizedUnit?[`unit_normalized_to_${normalizedUnit}`]:unit?['unit_preserved_unrecognized']:[])]
+    if (kind === 'estimate') lines.push({ id: lineId, category, description: baseDescription, estimatedHours: hours, estimatedCost: cost, quantity, unit, normalizedUnit,unitCost:effectiveUnitCost,costCode, phase, division })
+    else lines.push({ id: lineId, category, description: baseDescription, actualHours: hours, actualCost: cost,quantity,unit,normalizedUnit,unitCost:effectiveUnitCost,costCode, phase, division })
     provenance.push({lineId,worksheet:selected?.sheet.name??'',sourceRow:row.rowNumber,mapping:resolved.mappedColumns,originalValues:originalValues(row,resolved.mapping),normalizationDecisions:decisions,parserVersion:IMPORT_PARSER_VERSION})
   }
   if (!lines.length) issues.push({ severity: 'error', code: 'no_lines', message: 'No usable detail rows were found after classifying blank, summary, section, repeated-header, and malformed rows.' })
@@ -481,8 +602,8 @@ async function analyzeSheets(sheets: RawSheet[], fileName: string, kind: 'estima
   if (totals.reconciliation.state === 'failed') issues.push({ severity: 'error', code: 'source_total_mismatch', message: `Source-reported total ${totals.reconciliation.sourceReportedTotal} does not reconcile to normalized detail total ${totalCost}.` })
   if (cachedFormulaCells) issues.push({ severity: 'warning', code: 'formula_cached_value', message: `${cachedFormulaCells} mapped numeric formula cell${cachedFormulaCells === 1 ? '' : 's'} use cached workbook values. Margin Memory does not recalculate Excel formulas; confirm the workbook was recalculated and saved.` })
   if (lines.length && categoryCounts.other / lines.length > 0.5) issues.push({ severity: 'warning', code: 'category_coverage', message: `${categoryCounts.other} of ${lines.length} imported lines map to Other. Add recognizable cost categories before using category comparisons.` })
-  if (!resolved.mapping.hours) issues.push({ severity: 'warning', code: 'hours_missing', message: `No ${kind === 'estimate' ? 'estimated' : 'actual'} labor-hours column was detected. Labor-cost comparisons remain available, but labor productivity cannot be evaluated.` })
-  if (categoryCounts.labor > 0 && !resolved.mapping.hours) issues.push({ severity: 'warning', code: 'labor_cost_basis', message: 'Labor is represented by cost without hours. Confirm estimate and actual exports use the same loaded or base labor-cost basis.' })
+  if (!hasHoursMapping) issues.push({ severity: 'warning', code: 'hours_missing', message: `No ${kind === 'estimate' ? 'estimated' : 'actual'} labor-hours column was detected. Labor-cost comparisons remain available, but labor productivity cannot be evaluated.` })
+  if (categoryCounts.labor > 0 && !hasHoursMapping) issues.push({ severity: 'warning', code: 'labor_cost_basis', message: 'Labor is represented by cost without hours. Confirm estimate and actual exports use the same loaded or base labor-cost basis.' })
   const commercialRows = dataRows.filter(row => /\b(overhead|markup|profit|tax|bond|contingency|change order)\b/i.test(rowDescription(row, resolved.mapping))).length
   if (commercialRows) issues.push({ severity: 'warning', code: 'commercial_rows', message: `${commercialRows} row${commercialRows === 1 ? '' : 's'} mention commercial or change-order amounts. Confirm whether these costs belong in the comparison.` })
   const negativeLines = lines.filter(line => ('estimatedCost' in line ? line.estimatedCost : line.actualCost) < 0).length
@@ -490,7 +611,7 @@ async function analyzeSheets(sheets: RawSheet[], fileName: string, kind: 'estima
   if (selected?.sheet.name === 'CSV' && rawHeader) { const width = rawHeader.values.length; const inconsistent = dataRows.filter(row => row.values.some(value => asText(value) !== '') && row.values.length !== width); if (inconsistent.length) issues.push({ severity: 'error', code: 'inconsistent_columns', message: `CSV rows ${inconsistent.map(row => row.rowNumber).join(', ')} do not have the same column count as the header.` }) }
   const dimensionValues = (field: 'costCode' | 'phase' | 'division') => [...new Set(lines.map(line => line[field]).filter((value): value is string => Boolean(value?.trim())).map(value => value.trim()))]
   const structuredDimensions: StructuredDimensionValues = { costCodes: dimensionValues('costCode'), phases: dimensionValues('phase'), divisions: dimensionValues('division') }
-  const report: SpreadsheetImportReport = { kind, fileName, sheetName: selected?.sheet.name ?? '', worksheets, worksheetSelectionRationale: worksheet.reason, headerRow, headers: headers.map(column => column.header), mappedColumns: resolved.mappedColumns, mappedColumnIndexes: resolved.mappedColumnIndexes, mappingCandidates: resolved.mappingCandidates, mappingOptions: resolved.mappingOptions, sourceRows: dataRows.length, importedRows: lines.length, skippedSummaryRows: excludedRows.filter(row => row.reason === 'summary').length, skippedEmptyRows: excludedRows.filter(row => row.reason === 'blank').length, excludedRows, malformedCells, invalidNumericCells: malformedCells.length, categoryCounts, categoryTotals, totalCost, totalHours, sourceReportedTotal: totals.reconciliation.sourceReportedTotal, normalizedDetailTotal: totalCost, totalReconciliation: totals.reconciliation, laborHourCoverage: resolved.mapping.hours ? 'present' : 'absent', structuredDimensions, issues }
+  const report: SpreadsheetImportReport = { kind, fileName, sheetName: selected?.sheet.name ?? '', worksheets, worksheetSelectionRationale: worksheet.reason, headerRow, headers: headers.map(column => column.header), mappedColumns: resolved.mappedColumns, mappedColumnIndexes: resolved.mappedColumnIndexes, mappingCandidates: resolved.mappingCandidates, mappingOptions: resolved.mappingOptions, sourceRows: dataRows.length, importedRows: lines.length, skippedSummaryRows: excludedRows.filter(row => row.reason === 'summary').length, skippedEmptyRows: excludedRows.filter(row => row.reason === 'blank').length, excludedRows, malformedCells, invalidNumericCells: malformedCells.length, categoryCounts, categoryTotals, totalCost, totalHours, sourceReportedTotal: totals.reconciliation.sourceReportedTotal, normalizedDetailTotal: totalCost, totalReconciliation: totals.reconciliation, laborHourCoverage: hasHoursMapping ? 'present' : 'absent', structuredDimensions, issues }
   return { lines: (selected ? lines : []) as EstimateLine[] | ActualLine[], report,provenance:selected?provenance:[] }
 }
 

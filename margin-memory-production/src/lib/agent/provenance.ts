@@ -14,7 +14,12 @@ export const actions = {
   scope: { title:'Confirm scope assumptions', recommendation:'Confirm the documented scope and exclusions before final review.', question:'Have the scope and exclusions been confirmed?' },
 } as const
 export const AgentOutputSchema=z.object({
-  findings:z.array(z.object({category:z.enum(categories),severity:z.enum(['low','medium','high']),action:z.enum(['access','pathway','pricing','category','scope']),calculationRefs:z.array(z.string().uuid()).min(1).max(3),jobEvidenceRefs:z.array(z.string().uuid()).max(4),lessonEvidenceRefs:z.array(z.string().uuid()).max(3).default([])}).strict()).max(3),
+  findings:z.array(z.object({
+    category:z.enum(categories),severity:z.enum(['low','medium','high']),action:z.enum(['access','pathway','pricing','category','scope']),
+    calculationRefs:z.array(z.string().uuid()).length(1).describe('The evidenceId returned by calculate_category_risk for this category. Never use a job ID.'),
+    jobEvidenceRefs:z.array(z.string().uuid()).max(4).describe('Only evidenceId values returned by inspect_job in this invocation. Use an empty array when no job was inspected.'),
+    lessonEvidenceRefs:z.array(z.string().uuid()).max(3).default([]).describe('Only evidenceId values returned by search_lessons when that search returned a lesson used by this finding. Otherwise use an empty array.'),
+  }).strict()).max(3),
   questions:z.array(z.enum(['access','pathway','pricing','category','scope'])).max(2),
 }).strict()
 // Strands pauses through request_human_input. A final structured response is
@@ -42,7 +47,7 @@ export class EvidenceLedger {
     this.entries.set(entry.id,structuredClone(entry));return structuredClone(entry)
   }
   all(){return structuredClone([...this.entries.values()])}
-  get(id:string){const entry=this.entries.get(id);if(!entry||entry.investigationId!==this.investigationId)throw new Error('Unknown or foreign investigation evidence');return structuredClone(entry)}
+  get(id:string){const entry=this.entries.get(id);if(!entry||entry.investigationId!==this.investigationId)throw new Error(`Unknown or foreign investigation evidence: ${id}`);return structuredClone(entry)}
   retrieved(jobId:string){return this.all().some(e=>e.kind==='search'&&e.result.jobIds.includes(jobId))}
 }
 export function calculateRisk(jobs:Job[],category:CostCategory):Calculation {
@@ -52,19 +57,49 @@ export function calculateRisk(jobs:Job[],category:CostCategory):Calculation {
   const overrunCount=values.filter(v=>v>0.05).length
   return {category,comparableJobIds:jobs.map(j=>j.id),sampleSize:values.length,missingDataCount:Math.max(0,jobs.length-values.length),overrunCount,overrunFrequency:values.length?overrunCount/values.length:0,medianVariancePct:median(values),minimumVariancePct:values.length?Math.min(...values):0,maximumVariancePct:values.length?Math.max(...values):0,observations}
 }
+export function isMaterialHistoricalRisk(calculation:Calculation){
+  return calculation.sampleSize>=2&&calculation.overrunCount>=2&&calculation.medianVariancePct>0.08
+}
+export type FindingAction=keyof typeof actions
+const categoryActions:Record<CostCategory,readonly FindingAction[]>={
+  labor:['access','pathway','category','scope'],materials:['pricing','pathway','category','scope'],equipment:['pricing','access','category','scope'],subcontractor:['pricing','category','scope'],permit:['category','scope'],other:['category','scope'],
+}
+export function isActionRelevantToCategory(category:CostCategory,action:FindingAction){return categoryActions[category].includes(action)}
+function resolvedAction(category:CostCategory,requested:FindingAction):FindingAction{
+  return isActionRelevantToCategory(category,requested)?requested:'category'
+}
+type InspectionEvidence=Extract<ToolEvidence,{kind:'inspection'}>
+type SearchEvidence=Extract<ToolEvidence,{kind:'search'}>
+function resolveInspectionReference(reference:string,ledger:EvidenceLedger):InspectionEvidence{
+  try{const direct=ledger.get(reference);if(direct.kind!=='inspection')throw new Error('Job citation requires inspection evidence');return direct}catch(error){
+    const matches=ledger.all().filter((entry):entry is InspectionEvidence=>entry.kind==='inspection'&&entry.result.jobId===reference)
+    if(matches.length!==1)throw error
+    return matches[0]
+  }
+}
+function resolveLessonReference(reference:string,ledger:EvidenceLedger):SearchEvidence{
+  try{const direct=ledger.get(reference);if(direct.kind!=='search'||direct.toolName!=='search_lessons'||!direct.result.lessonIds?.length)throw new Error('Lesson citation requires retrieved lesson evidence');return direct}catch(error){
+    const matches=ledger.all().filter((entry):entry is SearchEvidence=>entry.kind==='search'&&entry.toolName==='search_lessons'&&Boolean(entry.result.lessonIds?.includes(reference)))
+    if(matches.length!==1)throw error
+    return matches[0]
+  }
+}
 export type RenderedFinding=Omit<Finding,'id'|'estimateId'|'status'|'createdAt'> & {evidenceRefs:string[]}
 const percent=(value:number)=>`${Math.round(value*100)}%`
 export function renderAgentOutput(raw:unknown,ledger:EvidenceLedger){
   const output=AgentOutputSchema.parse(raw)
-  const findings:RenderedFinding[]=output.findings.map(f=>{
+  if(!ledger.all().some(entry=>entry.kind==='search'&&entry.toolName==='search_similar_jobs'))throw new Error('A completed review requires comparable-job search evidence')
+  const findings:RenderedFinding[]=output.findings.flatMap(f=>{
     const calculations=f.calculationRefs.map(ref=>{const e=ledger.get(ref);if(e.kind!=='calculation'||e.result.category!==f.category||!e.result.sampleSize)throw new Error('Finding requires a nonempty calculation for its category');return e})
-    const inspected=f.jobEvidenceRefs.map(ref=>{const e=ledger.get(ref);if(e.kind!=='inspection')throw new Error('Job citation requires inspection evidence');return e})
-    const lessonSearches=f.lessonEvidenceRefs.map(ref=>{const e=ledger.get(ref);if(e.kind!=='search'||e.toolName!=='search_lessons'||!e.result.lessonIds?.length)throw new Error('Lesson citation requires retrieved lesson evidence');return e})
+    const inspected=f.jobEvidenceRefs.map(ref=>resolveInspectionReference(ref,ledger))
+    const lessonSearches=f.lessonEvidenceRefs.map(ref=>resolveLessonReference(ref,ledger))
     const jobIds=[...new Set([...calculations.flatMap(e=>e.result.observations.map(o=>o.jobId)),...inspected.map(e=>e.result.jobId)])]
     for(const jobId of jobIds)if(!ledger.retrieved(jobId))throw new Error('Cited job was not retrieved in this investigation')
     const calc=calculations[0].result
+    if(!isMaterialHistoricalRisk(calc))return []
     const evidence=classifyEvidence({sampleSize:calc.sampleSize,comparableJobCount:calc.comparableJobIds.length,missingDataCount:calc.missingDataCount})
-    return {category:f.category,severity:f.severity,title:actions[f.action].title,claim:`${calc.overrunCount} of ${calc.sampleSize} completed jobs exceeded the scope-adjusted ${f.category} budget by more than 5%.`,rationale:`Variance against approved scope; this does not establish cause. Median variance ${percent(calc.medianVariancePct)}; range ${percent(calc.minimumVariancePct)} to ${percent(calc.maximumVariancePct)}; overrun frequency ${percent(calc.overrunFrequency)}. Evidence strength: ${evidence.label}. ${evidence.explanation} ${evidenceDisclaimer()}`,recommendation:actions[f.action].recommendation,confidence:Math.min(0.95,0.5+calc.sampleSize*0.05),evidenceRefs:[...new Set([...f.calculationRefs,...f.jobEvidenceRefs,...lessonSearches.map(value=>value.id)])],evidence:jobIds.map(jobId=>{const o=calculations.flatMap(e=>e.result.observations).find(o=>o.jobId===jobId);const inspection=inspected.find(e=>e.result.jobId===jobId);return{jobId,label:o?.name??inspection?.result.name??'Completed job',detail:o?`Cost difference $${o.costDelta.toFixed(2)}; hours difference ${o.hoursDelta.toFixed(2)}.`:'Inspected completed-job record.'}})}
+    const action=resolvedAction(f.category,f.action)
+    return [{category:f.category,severity:f.severity,title:actions[action].title,claim:`${calc.overrunCount} of ${calc.sampleSize} completed jobs exceeded the scope-adjusted ${f.category} budget by more than 5%.`,rationale:`Variance against approved scope; this does not establish cause. Median variance ${percent(calc.medianVariancePct)}; range ${percent(calc.minimumVariancePct)} to ${percent(calc.maximumVariancePct)}; overrun frequency ${percent(calc.overrunFrequency)}. Evidence strength: ${evidence.label}. ${evidence.explanation} ${evidenceDisclaimer()}`,recommendation:actions[action].recommendation,confidence:Math.min(0.95,0.5+calc.sampleSize*0.05),evidenceRefs:[...new Set([...f.calculationRefs,...inspected.map(value=>value.id),...lessonSearches.map(value=>value.id)])],evidence:jobIds.map(jobId=>{const o=calculations.flatMap(e=>e.result.observations).find(o=>o.jobId===jobId);const inspection=inspected.find(e=>e.result.jobId===jobId);return{jobId,label:o?.name??inspection?.result.name??'Completed job',detail:o?`Cost difference $${o.costDelta.toFixed(2)}; hours difference ${o.hoursDelta.toFixed(2)}.`:'Inspected completed-job record.'}})}]
   })
   // Questions are selected from a bounded vocabulary; no model-authored arithmetic enters product copy.
   const questions=[...new Set(output.questions)].map(topic=>({prompt:actions[topic].question,context:actions[topic].recommendation,options:['Yes — confirmed','No — not confirmed','Not sure yet']}))

@@ -1,7 +1,7 @@
 import { describe,it,expect } from 'vitest'
 import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
-import { assessImportPair, IMPORT_RESOURCE_LIMITS, parseActualFile,parseActualFileWithReport,parseEstimateFile,parseEstimateFileWithReport,requireImportApproval } from '../src/lib/spreadsheet'
+import { assessImportPair, IMPORT_PARSER_VERSION, IMPORT_RESOURCE_LIMITS, parseActualFile,parseActualFileWithReport,parseEstimateFile,parseEstimateFileWithReport,requireImportApproval } from '../src/lib/spreadsheet'
 const csv=(value:string)=>new File([value],'cost.csv',{type:'text/csv'})
 describe('spreadsheet normalization',()=>{
  it.each(['Subtotal','Total','Grand Total','Labor Total','Material Total','Equipment Total','Section Total','Category Total',''])('does not count %s rollups',async label=>{
@@ -10,9 +10,64 @@ describe('spreadsheet normalization',()=>{
  it('independently checks category and description',async()=>expect(await parseEstimateFile(csv('Category,Description,Cost\nMaterials,Wire,100\nSubtotal,Subtotal,100'))).toHaveLength(1))
  it('handles section totals and title rows',async()=>{const rows=await parseEstimateFile(csv('Contractor cost report\nDescription,Cost\nWire,100\nMaterial total,100\nCrew,200\nLabor total,200\nGrand total,300'));expect(rows.reduce((n,l)=>n+l.estimatedCost,0)).toBe(300)})
  it('preserves real details',async()=>expect(await parseEstimateFile(csv('Description,Cost\nTotal station,100\nSubtotal connector,50'))).toHaveLength(2))
+ it('uses an explicit row-type column to exclude nested rollups while retaining detail credits',async()=>{
+  const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Estimate')
+  sheet.addRow(['Row Type','Category','Description','Qty','Unit','Material $','Labor Hrs','Total $'])
+  sheet.addRow(['Detail','Lighting','Fixture type A',30,'EA',4800,18,6100])
+  sheet.addRow(['Detail','Lighting','Fixture type B',20,'EA',3900,14,4860])
+  sheet.addRow(['Subtotal','Lighting','LIGHTING SUBTOTAL',null,null,8700,32,10960])
+  sheet.addRow(['Detail','Devices','Receptacles',55,'EA',1650,21,3050])
+  sheet.addRow(['Detail','Devices','Switches',18,'EA',540,8,1070])
+  sheet.addRow(['Credit','Devices','Returned device credit',-5,'EA',-140,-1,-205])
+  sheet.addRow(['Subtotal','Devices','DEVICES NET SUBTOTAL',null,null,2050,28,3915])
+  sheet.addRow(['Grand Total',null,'GRAND TOTAL',null,null,10750,60,14875])
+  const parsed=await parseEstimateFileWithReport(new File([new Uint8Array(await book.xlsx.writeBuffer())],'rollups.xlsx'))
+  expect(parsed.report.issues).not.toContainEqual(expect.objectContaining({code:'ambiguous_summary_row'}))
+  expect(parsed.report).toMatchObject({mappedColumns:expect.objectContaining({rowType:'row type'}),importedRows:5,skippedSummaryRows:3,normalizedDetailTotal:14875,sourceReportedTotal:14875,totalReconciliation:expect.objectContaining({state:'matched'})})
+  expect(parsed.lines.some(line=>line.description==='Returned device credit'&&line.estimatedCost===-205)).toBe(true)
+ })
  it('handles XLSX cached formulas, rich text, and quantity rates',async()=>{
   const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Costs');sheet.addRow(['Electrical contractor']);sheet.addRow(['Description','Quantity','Unit Cost','Estimated Cost']);sheet.addRow([{richText:[{text:'Wire'}]},2,50,{formula:'B3*C3',result:100}]);sheet.addRow(['Conduit',3,20]);sheet.addRow(['Total',null,null,{formula:'SUM(D3:D4)',result:160}]);
   const rows=await parseEstimateFile(new File([new Uint8Array(await book.xlsx.writeBuffer())],'cost.xlsx'));expect(rows.map(r=>r.estimatedCost)).toEqual([100,60])
+ })
+ it('finds a contractor table after extended workbook metadata and splits estimate cost components safely',async()=>{
+  const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Final Estimate')
+  for(let row=1;row<=15;row+=1)sheet.addRow([`Metadata ${row}`,`Value ${row}`])
+  sheet.addRow([]);sheet.addRow(['Phase','Cost Code','Description','Qty','Unit','Mat Unit $','Material Ext $','Labor Unit Hrs','Labor Hours','Labor Rate','Labor Ext $','Equipment $','Subcontract $','Direct Cost'])
+  sheet.addRow(['Raceway','26-0533','EMT raceway',100,'LF',2,200,.1,10,60,600,50,25,875])
+  sheet.addRow(['DIRECT COST TOTAL','DIRECT COST TOTAL','DIRECT COST TOTAL',null,null,null,200,null,10,null,600,50,25,875])
+  const parsed=await parseEstimateFileWithReport(new File([new Uint8Array(await book.xlsx.writeBuffer())],'contractor-estimate.xlsx'))
+  expect(parsed.report).toMatchObject({headerRow:17,mappedColumns:expect.objectContaining({description:'description',cost:'direct cost',laborCost:'labor ext',materialCost:'material ext',equipmentCost:'equipment',subcontractorCost:'subcontract'}),normalizedDetailTotal:875,sourceReportedTotal:875,totalReconciliation:expect.objectContaining({state:'matched'})})
+  expect(parsed.report.categoryTotals).toMatchObject({labor:{cost:600,hours:10},materials:{cost:200,hours:0},equipment:{cost:50,hours:0},subcontractor:{cost:25,hours:0}})
+  expect(parsed.lines).toHaveLength(4)
+ })
+ it('maps total actual and preserves actual labor/material components as distinct evidence',async()=>{
+  const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Job Cost Summary')
+  for(let row=1;row<=10;row+=1)sheet.addRow([`Metadata ${row}`,`Value ${row}`])
+  sheet.addRow(['Phase','Cost Code','Description','Qty Actual','Unit','Labor Hours','Labor Cost','Material Cost','Equipment','Subcontract','Other','Total Actual'])
+  sheet.addRow(['Raceway','26-0533','EMT raceway',105,'LF',12,720,210,55,30,5,1020])
+  sheet.addRow(['ACTUAL TOTALS','ACTUAL TOTALS','ACTUAL TOTALS',null,null,12,720,210,55,30,5,1020])
+  const parsed=await parseActualFileWithReport(new File([new Uint8Array(await book.xlsx.writeBuffer())],'contractor-actuals.xlsx'))
+  expect(parsed.report).toMatchObject({headerRow:11,mappedColumns:expect.objectContaining({cost:'total actual',laborCost:'labor cost',materialCost:'material cost',equipmentCost:'equipment',subcontractorCost:'subcontract',otherCost:'other'}),normalizedDetailTotal:1020,sourceReportedTotal:1020,totalReconciliation:expect.objectContaining({state:'matched'})})
+  expect(parsed.report.categoryTotals).toMatchObject({labor:{cost:720,hours:12},materials:{cost:210,hours:0},equipment:{cost:55,hours:0},subcontractor:{cost:30,hours:0},other:{cost:5,hours:0}})
+  expect(parsed.lines).toHaveLength(5)
+ })
+ it('aggregates explicit labor-hour components without asking the user to choose one',async()=>{
+  const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Final Estimate')
+  sheet.addRow(['Cost Code','Phase','Description','Qty','Unit','Material $','Field Labor Hrs','Shop Labor Hrs','Indirect Labor Hrs','Labor $','Equipment $','Subcontract $','Other $','Direct Cost'])
+  sheet.addRow(['26-0533','Raceway','EMT raceway',100,'LF',200,10,2,1,780,50,25,5,1060])
+  sheet.addRow(['DIRECT COST TOTAL','DIRECT COST TOTAL','DIRECT COST TOTAL',null,null,200,10,2,1,780,50,25,5,1060])
+  const parsed=await parseEstimateFileWithReport(new File([new Uint8Array(await book.xlsx.writeBuffer())],'labor-components.xlsx'))
+  expect(parsed.report.issues).not.toContainEqual(expect.objectContaining({code:'ambiguous_mapping'}))
+  expect(parsed.report.categoryTotals).toMatchObject({labor:{cost:780,hours:13},materials:{cost:200,hours:0},equipment:{cost:50,hours:0},subcontractor:{cost:25,hours:0},other:{cost:5,hours:0}})
+  expect(parsed.report.totalReconciliation.state).toBe('matched')
+ })
+ it('ignores a post-table confirmation but blocks a malformed competing source control total',async()=>{
+  const workbook=async(control:string)=>{const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Estimate');sheet.addRow(['Description','Material Cost','Labor Cost','Labor Hours','Direct Cost']);sheet.addRow(['Wire',100,60,1,160]);sheet.addRow(['DIRECT COST TOTAL',100,60,1,160]);sheet.addRow(['Pricing Summary']);sheet.addRow(['Source Total / Control',control]);return new File([new Uint8Array(await book.xlsx.writeBuffer())],'control.xlsx')}
+  const clean=await parseEstimateFileWithReport(await workbook('Matches calculated bid'))
+  expect(clean.report.issues).not.toContainEqual(expect.objectContaining({code:'invalid_numbers'}))
+  const malformed=await parseEstimateFileWithReport(await workbook('$999.99 (intentional mismatch)'))
+  expect(malformed.report.issues).toContainEqual(expect.objectContaining({code:'invalid_numbers',severity:'error'}))
  })
  it('fails closed with an actionable error when workbook XML cannot be interpreted',async()=>{
   const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Estimate');sheet.addRow(['Description','Cost']);sheet.addRow(['Wire',100])
@@ -264,7 +319,7 @@ describe('spreadsheet normalization',()=>{
   const result=await parseEstimateFileWithReport(file,{worksheet:'Bid Detail'})
   expect(result.report.sheetName).toBe('Bid Detail')
   expect(result.lines[0]?.estimatedCost).toBe(100)
-  expect(result.provenance[0]).toMatchObject({lineId:result.lines[0]?.id,worksheet:'Bid Detail',sourceRow:2,parserVersion:'2026-09-p1-v2',mapping:{cost:'cost'},originalValues:{cost:'100'}})
+  expect(result.provenance[0]).toMatchObject({lineId:result.lines[0]?.id,worksheet:'Bid Detail',sourceRow:2,parserVersion:IMPORT_PARSER_VERSION,mapping:{cost:'cost'},originalValues:{cost:'100'}})
  })
 
  it('does not permit explicit hidden-sheet selection',async()=>{

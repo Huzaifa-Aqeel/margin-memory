@@ -16,8 +16,11 @@ export type PreviewResult = {
 }
 
 const fieldLabels: Record<ImportMappingField, string> = {
-  description: 'description', category: 'category', costCode: 'cost code', phase: 'phase', division: 'division',
-  cost: 'cost', hours: 'labor hours', quantity: 'quantity', unitCost: 'unit cost', unit: 'unit',
+  rowType: 'row type', description: 'description', category: 'category', costCode: 'cost code', phase: 'phase', division: 'division',
+  cost: 'row total', laborCost: 'labor cost', materialCost: 'material cost', equipmentCost: 'equipment cost',
+  subcontractorCost: 'subcontract cost', otherCost: 'other cost', hours: 'labor hours', fieldLaborHours: 'field labor hours',
+  shopLaborHours: 'shop labor hours', indirectLaborHours: 'indirect labor hours', quantity: 'quantity',
+  unitCost: 'unit cost', materialUnitCost: 'material unit cost', laborRate: 'labor rate', unit: 'unit',
 }
 
 function money(value: number) { return `$${(Math.round(value * 100) / 100).toLocaleString()}` }

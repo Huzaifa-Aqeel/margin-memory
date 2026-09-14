@@ -1,6 +1,6 @@
 # Margin Memory — current continuation checkpoint
 
-Updated 2026-09-13. This is the authoritative handoff for the next Codex session. Read this file first, then [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), and [DEPLOYMENT.md](DEPLOYMENT.md). Do not reconstruct progress from old task history.
+Updated 2026-09-14. This is the authoritative handoff for the next Codex session. Read this file first, then [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), and [DEPLOYMENT.md](DEPLOYMENT.md). Do not reconstruct progress from old task history.
 
 ## Repository
 
@@ -63,33 +63,36 @@ A read-only hosted check confirmed that all eight fixture jobs (including the se
 
 Historical completed-job onboarding is now exception-driven without a new parser or schema. The form starts with the two source files and an explicit baseline confirmation, derives conservative editable descriptive metadata from filenames after a valid server analysis, collapses clean parser diagnostics, and shows only unresolved worksheet or semantic-column choices. Commit reparses with the server-owned worksheet and exact mapped column indexes. The completion state reports canonical historical-evidence eligibility rather than equating a successful commit with trusted history. See [HISTORICAL_ONBOARDING_HARDENING_2026-09-13.md](HISTORICAL_ONBOARDING_HARDENING_2026-09-13.md).
 
-The real-upload XLSX parser boundary is now hardened. An adversarial XLSX reproduces ExcelJS 4.4.0 returning an undefined workbook model and then throwing `Cannot read properties of undefined (reading 'sheets')`. Both estimate and actual parsing now verify required Open Packaging Convention parts before ExcelJS and convert unsupported/damaged workbook XML failures into a fail-closed, actionable re-save/export message. The raw library exception is no longer returned by `/api/import/preview`. This proves safe failure behavior, not compatibility with the user's specific workbook; that file has not been supplied to the repository.
+The real-upload XLSX parser boundary is now hardened. An adversarial XLSX reproduces ExcelJS 4.4.0 returning an undefined workbook model and then throwing `Cannot read properties of undefined (reading 'sheets')`. Both estimate and actual parsing now verify required Open Packaging Convention parts before ExcelJS and convert unsupported/damaged workbook XML failures into a fail-closed, actionable re-save/export message. The raw library exception is no longer returned by `/api/import/preview`. This proves safe failure behavior. The earlier workbook that first produced the report was not supplied separately; the later synthetic test corpus is covered below.
+
+The user subsequently supplied the structurally realistic but explicitly synthetic workbook corpus at `/home/huzaifa-aqeel/Downloads/testing files`. All four estimate/actual pairs now parse with reconciled totals, complete structured coverage, component cost/category separation, additive labor-hour columns, cached-formula review, explicit row-type rollup exclusion, and preserved credits. In an isolated hosted organization, all four went through the real preview and commit routes, exact idempotent replay, hosted PostgreSQL, live Titan v1 indexing, confirmed lesson indexing/retrieval, and Nova Lite preflight. The corpus exposed and now has regressions for JSONB/`undefined` review-hash drift, false findings from non-material calculations, incompatible finding actions/questions, missing comparable-search evidence, evidence-ID/business-ID ambiguity, premature tool-order state, and exhaustive category/calibration loops. See [SYNTHETIC_PILOT_CORPUS_E2E_2026-09-14.md](SYNTHETIC_PILOT_CORPUS_E2E_2026-09-14.md).
+
+The honest product result is mixed: Cedar and Valley return valid zero-finding outcomes, and Oak exercised persisted question → answer → resumed evidence-backed finding. Pine still returned zero because Nova narrowed its calculation to one job, below the deterministic two-comparison threshold, despite three retrieved candidates. Treat Pine as a retrieval/selection false negative and keep the first contractor pilot supervised. Do not weaken the materiality threshold or force a warning to make the synthetic fixture pass.
 
 ## Latest verification
 
-Final local verification on 2026-09-13:
+Final local and hosted-path verification on 2026-09-14:
 
 | Command | Result |
 | --- | --- |
+| `npm install` | Passed; 618 packages audited. Two moderate ExcelJS/`uuid` transitive advisories remain; npm's proposed automatic fix is a breaking ExcelJS downgrade and was not applied. |
 | `npm run verify` | Passed |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed, no warnings |
-| `npm test` | 374 tests passed in 24 files |
-| `npm run test:db` | 127 tests passed; all 21 migrations applied from zero on PostgreSQL 18 + pgvector, including the real preview-route XLSX failure boundary, import review/mapping parity, and the pre-021 demo recovery upgrade path |
+| `npm test` | 391 tests passed in 25 files |
+| `npm run test:db` | 128 tests passed; all 21 migrations applied from zero on PostgreSQL 18 + pgvector |
 | `npm run build` | Passed with Next.js 16.3.4 |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome npm run test:browser` | 19 tests passed |
 | `npm run smoke:bedrock` | Agent model passed; Titan embedding returned and validated 1536 dimensions |
-| Focused spreadsheet/review-contract suite | 97 tests passed, including malformed XLSX package and workbook-XML regressions |
+| Focused agent/provenance/tool suite | 21 tests passed |
 | `OFFICE_ADDIN_ORIGIN=https://margin.example.com npm run excel:manifest` | Passed; generated manifest passed Microsoft's `office-addin-manifest` schema/acceptance validator |
 | `git diff --check` | Passed |
 
-The focused metadata/spreadsheet/import-contract/memory-policy unit suite passed 105 tests in 4 files. The focused historical-onboarding/import-preview/scope browser suite passed 13 tests. The focused agent outcome, demo route, and provenance suite previously passed 18 tests in 3 files.
-
-The final commands ran successfully in the current environment. No check was disabled or weakened.
+The final commands ran successfully in the current environment. No check was disabled or weakened. `npm ls --depth=0` reports no invalid Strands peer dependency; two platform-specific optional packages installed by the Next.js toolchain are reported as extraneous.
 
 ## Database deployment state
 
-There are 21 forward-only migrations. Local zero-to-current migration verification passes. Hosted application of the newest migrations has not been verified. Migrations 017–021 must ship with the matching web code:
+There are 21 forward-only migrations. Local zero-to-current migration verification passes. The hosted Supabase target used for the supplied-corpus run exposed and successfully executed the review/import, revision, trusted-memory, and demo-safety structures from migrations 017–021. Keep these migrations aligned with the matching web deployment:
 
 - `202609120017_import_production_hardening.sql`
 - `202609120018_trusted_import_boundaries.sql`
@@ -117,8 +120,8 @@ Standard AWS SDK profile/role resolution is used. Do not rerun paid Bedrock smok
 
 Repository implementation is ready for a controlled pilot, subject to these external checks:
 
-1. Review and commit the historical-onboarding hardening in the working tree; `.env.local`, `node_modules`, `.next`, test artifacts, generated manifests, and Supabase temporary files are confirmed ignored.
-2. Apply migrations 017–021 to hosted Supabase with the matching application deployment, then reconcile company memory to rebuild legacy vectors with current hashes. Migration 021 is required before using the new demo seed/reset route.
+1. Review and commit the current working tree; `.env.local`, `node_modules`, `.next`, test artifacts, generated manifests, and Supabase temporary files are confirmed ignored.
+2. Confirm the production deployment target has the same 21 migrations before deploying the matching application build, then reconcile company memory to rebuild any legacy vectors with current hashes.
 3. Deploy the web application at a public HTTPS origin, add that origin and `/integrations/excel/auth-complete` to the allowed Supabase Auth URLs, generate the Office manifest with `OFFICE_ADDIN_ORIGIN`, and sideload/deploy it in Microsoft 365.
 4. Run the complete Excel-host journey with a real desktop/web Excel host: sign in, inspect/select source, review exceptions, run/retry a check, answer a persisted question, and reopen the task pane.
 5. Run the full signed-in journey against hosted Auth, Postgres, and Storage in a test organization.
@@ -126,6 +129,8 @@ Repository implementation is ready for a controlled pilot, subject to these exte
 7. Validate permissioned, deidentified real contractor exports using [CUSTOMER_IMPORT_VALIDATION_TASKS.md](CUSTOMER_IMPORT_VALIDATION_TASKS.md).
 8. Conduct a pilot with 5–8 target contractors and 10–20 comparable jobs where available; measure import preparation, warning usefulness, false alarms, and repeat use.
 9. Deploy AgentCore only if the hackathon/demo benefit justifies its added runtime and IAM setup. The working local Bedrock path should remain the fallback.
+
+The supplied-corpus run used isolated hosted organization `d28c8f05-3dbf-4411-bc8c-b5a54ffcd029`. Its staged source objects were removed and its dedicated test login was disabled. The organization rows remain because production append-only audit triggers correctly reject application/API deletion of production-origin investigation evidence. Delete this isolated organization only through an audited database maintenance transaction that temporarily enables the existing cleanup guard for these exact test rows; do not weaken the trigger or use the demo reset RPC for production-origin records.
 
 ## Known limits
 

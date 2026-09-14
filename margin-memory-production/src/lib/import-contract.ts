@@ -58,9 +58,9 @@ export class ImportReviewError extends Error {}
 
 function stable(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`
+  if (Array.isArray(value)) return `[${value.map(item=>stable(item===undefined?null:item)).join(',')}]`
   const object = value as Record<string, unknown>
-  return `{${Object.keys(object).sort().map(key => `${JSON.stringify(key)}:${stable(object[key])}`).join(',')}}`
+  return `{${Object.keys(object).filter(key=>object[key]!==undefined).sort().map(key => `${JSON.stringify(key)}:${stable(object[key])}`).join(',')}}`
 }
 
 export function sha256Bytes(bytes: ArrayBuffer | Uint8Array) {

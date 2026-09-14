@@ -6,8 +6,9 @@ const metrics={cycleCount:2,toolMetrics:{get_current_estimate:{}},totalDuration:
 const result=(overrides:Record<string,unknown>={})=>({stopReason:'toolUse',structuredOutput:{findings:[],questions:[]},metrics,...overrides})
 const ledger=()=>new EvidenceLedger(crypto.randomUUID(),async()=>{})
 
-it('accepts a valid structured completion and preserves legitimate zero findings',()=>{
- const outcome=interpretStrandsResult(result(),ledger())
+it('accepts a valid structured completion and preserves legitimate zero findings',async()=>{
+ const evidence=ledger();await evidence.record({kind:'search',toolName:'search_similar_jobs',result:{jobIds:[]}})
+ const outcome=interpretStrandsResult(result(),evidence)
  expect(outcome.kind).toBe('completed')
  expect(outcome.output).toMatchObject({findings:[],questions:[],summary:'No material historical risks found.'})
 })

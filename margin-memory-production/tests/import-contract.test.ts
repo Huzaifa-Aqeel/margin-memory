@@ -11,6 +11,12 @@ async function contract(file:File){
 }
 
 describe('durable import review contracts',()=>{
+ it('hashes optional undefined fields exactly as their persisted JSON representation',async()=>{
+  const file=new File(['Description,Cost\nWire,100'],'bid.csv',{type:'text/csv'});const {analysis}=await contract(file)
+  const previewAnalysis:ImportReviewAnalysis={...analysis,completeness:undefined}
+  const persistedAnalysis=JSON.parse(JSON.stringify(previewAnalysis)) as ImportReviewAnalysis
+  expect(hashImportAnalysis(previewAnalysis)).toBe(hashImportAnalysis(persistedAnalysis))
+ })
  it('accepts the exact reviewed bytes and rejects preview-A/commit-B substitution',async()=>{
   const fileA=new File(['Description,Cost\nWire,100'],'bid.csv',{type:'text/csv'});const fileB=new File(['Description,Cost\nWire,900'],'bid.csv',{type:'text/csv'});const{analysis,review,reportHash}=await contract(fileA)
   await expect(verifyImportReviewContract({review,importKind:'new_estimate',submittedReportHash:reportHash,files:[{role:'estimate',file:fileA}],analysis})).resolves.toBeUndefined()

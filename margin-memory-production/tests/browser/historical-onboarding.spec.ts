@@ -77,7 +77,7 @@ test('asks only for an ambiguous worksheet and then reuses the resolved review',
 test('asks only for the competing semantic column and binds the choice', async ({ page }) => {
   await page.getByRole('button', { name: 'mapping', exact: true }).click(); await attachFiles(page); await confirmBaseline(page)
   await page.getByRole('button', { name: 'Analyze estimate and actuals' }).click()
-  await expect(page.getByText('Which estimate column contains cost?')).toBeVisible()
+  await expect(page.getByText('Which estimate column contains row total?')).toBeVisible()
   await page.getByLabel(/cost column 4/i).check()
   await page.getByRole('button', { name: 'Analyze selected source' }).click()
   await expect(page.getByLabel('Job name')).toHaveValue('Baker Office Renovation')
